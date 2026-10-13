@@ -183,6 +183,9 @@ sistema_red() {
 
 sistema_energia() {
   instalar_componente energia
+  # power-profiles-daemon habilitado: aplica el perfil guardado desde el arranque (si solo lo arranca D-Bus al
+  # iniciar sesión, hasta entonces rige el perfil por defecto del firmware)
+  condicion_cumplida ppd || aviso "$(motivo_condicion ppd): los perfiles de energía de Caelestia no funcionarán"
   if getent group energia >/dev/null; then info "sin cambios: el grupo energia ya existe"
   else ejecutar "groupadd --system energia" groupadd --system energia; registrar grupo energia energia; fi
   if [[ -n $ESTACION_USUARIO ]] && id "$ESTACION_USUARIO" >/dev/null 2>&1; then
@@ -241,6 +244,8 @@ instalar_sistema() {
   local e comp_u u ya
   for e in "${UNIDADES_A_HABILITAR[@]}"; do
     IFS='|' read -r comp_u u ya <<<"$e"
+    # Ya habilitada antes (p. ej. por el usuario): no se toca ni se registra, así desinstalar.sh no la deshabilita
+    if [[ $(systemctl is-enabled "$u" 2>/dev/null) == enabled ]]; then info "sin cambios: $u ya estaba habilitada"; continue; fi
     if [[ $ya == 1 ]]; then ejecutar "systemctl enable --now $u" systemctl enable --now "$u"
     else ejecutar "systemctl enable $u" systemctl enable "$u"; fi
     registrar unidad "$comp_u" "$u"; hecho=1
@@ -264,6 +269,7 @@ instalar_usuario() {
   (( CAMBIO_UNIDADES )) && { ejecutar "systemctl --user daemon-reload" systemctl --user daemon-reload; hecho=1; }
   for e in "${UNIDADES_A_HABILITAR[@]}"; do
     IFS='|' read -r comp_u u ya <<<"$e"
+    if [[ $(systemctl --user is-enabled "$u" 2>/dev/null) == enabled ]]; then info "sin cambios: $u ya estaba habilitada"; continue; fi
     if [[ $ya == 1 ]]; then ejecutar "systemctl --user enable --now $u" systemctl --user enable --now "$u"
     else ejecutar "systemctl --user enable $u" systemctl --user enable "$u"; fi
     registrar unidad "$comp_u" "$u"; hecho=1

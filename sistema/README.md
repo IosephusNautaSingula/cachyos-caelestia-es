@@ -180,6 +180,11 @@ arrancar o al volver de suspensión («controller timed out», -110, a veces pre
   (CVE-2020-8694). El instalador crea el grupo si no existe y añade `ESTACION_USUARIO` (vale tras volver a iniciar
   sesión). Si un programa (p. ej. Mission Center) instala su propia regla que los deja legibles por todos, el
   comprobador semanal lo avisa. Compruébelo con `ls -l /sys/class/powercap/intel-rapl*/energy_uj`.
+- `power-profiles-daemon.service` (si está instalado): se habilita para que el perfil elegido en Caelestia
+  (Rendimiento / Equilibrado / Ahorro) se aplique desde el arranque. El paquete lo deja sin habilitar: solo lo arranca
+  D-Bus al iniciar sesión y, hasta entonces (pantalla del PIN, gestor de inicio de sesión), rige el perfil por
+  defecto del firmware. Si ya estaba habilitado, no se toca ni se deshabilita al desinstalar. Compruébelo con
+  `systemctl is-enabled power-profiles-daemon` y `powerprofilesctl`. Más en `guias/perfiles-energia.md`.
 
 ### avisos
 

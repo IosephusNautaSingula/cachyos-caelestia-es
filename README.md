@@ -26,7 +26,7 @@ llevan el prefijo `estacion-`.
 | [`sistema/`](sistema/) | Scripts y servicios con su **instalador** y **desinstalador**: copias restic al NAS, avisos, touchpad ELAN, Bluetooth que recuerda su estado y reconecta, cortafuegos solo en la red de casa, endurecimiento, permisos de RAPL, avisos de actualización y de recompilar tras Qt6, ajustes de volumen y brillo con aceleración, tema de Zen con los colores de Caelestia, AutoFirma, herramientas de prueba. |
 | [`sistema/cifrado/`](sistema/cifrado/) | Cifrado LUKS2 **en el sitio** (sin reinstalar) con TPM2 + PIN y Limine. **Riesgo de pérdida de datos:** nada se ejecuta por defecto. |
 | [`config/`](config/) | Configuración de Hyprland, Caelestia, UWSM, entradas `.desktop`, navegador, Neovim, Spotify, VS Code y plantillas de chezmoi. |
-| [`guias/`](guias/) | Guías paso a paso: reinstalar, restaurar, cifrado LUKS2 con TPM2 + PIN, copias restic por SMB, AutoFirma con NSS, Parsec, Bluetooth multipunto, touchpad ELAN con la IRQ desactivada, snapper con Limine, endurecimiento y Spotify en Hyprland. |
+| [`guias/`](guias/) | Guías paso a paso: reinstalar, restaurar, cifrado LUKS2 con TPM2 + PIN, copias restic por SMB, AutoFirma con NSS, Parsec, Bluetooth multipunto, touchpad ELAN con la IRQ desactivada, snapper con Limine, endurecimiento, perfiles de energía y Spotify en Hyprland. |
 | [`paquetes/`](paquetes/) | Lista de paquetes por función (repositorios y AUR). |
 
 ## Requisitos

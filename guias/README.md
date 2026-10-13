@@ -24,6 +24,7 @@ Los valores de ejemplo son ficticios (red `192.168.0.0/24`, IP `192.0.2.x`, MAC 
 |---|---|
 | [cifrado-luks2-tpm2-limine.md](cifrado-luks2-tpm2-limine.md) | **Cifrar en el sitio** `/` y `/home` (LUKS2, TPM2 + PIN, clave de recuperación, cabeceras, rescate). Lea el aviso de riesgo. |
 | [endurecimiento.md](endurecimiento.md) | ufw solo en casa, sysctl, LLMNR, DNS cifrado, MAC por red, RAPL sin canal lateral. |
+| [perfiles-energia.md](perfiles-energia.md) | Perfiles de energía de Caelestia con power-profiles-daemon: qué cambian, cómo medirlos y aplicarlos desde el arranque. |
 | [autofirma-nss-firefox-zen.md](autofirma-nss-firefox-zen.md) | AutoFirma con el almacén de certificados de Firefox o Zen; `afirma://`. |
 
 ## Hardware y aplicaciones

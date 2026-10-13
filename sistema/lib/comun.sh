@@ -140,6 +140,7 @@ copia|sistema||estacion-copia.timer|1
 copia|sistema||estacion-copia-mantener.timer|1
 touchpad|sistema|touchpad|estacion-touchpad.service|0
 bluetooth|sistema||estacion-bluetooth-recordar.service|0
+energia|sistema|ppd|power-profiles-daemon.service|1
 copia|usuario||estacion-copia-vigilar.timer|1
 bluetooth|usuario||estacion-bluetooth-reconectar.service|0
 avisos|usuario||estacion-aviso-actualizar.timer|1
@@ -167,6 +168,7 @@ condicion_cumplida() {
     ufw)       command -v ufw >/dev/null ;;
     zen)       [[ -r ${ZEN_DIR:-$HOME/.config/zen}/profiles.ini ]] ;;
     autofirma) [[ -x /usr/bin/autofirma ]] ;;
+    ppd)       systemctl cat power-profiles-daemon.service >/dev/null 2>&1 ;;
     *) return 1 ;;
   esac
 }
@@ -179,6 +181,7 @@ motivo_condicion() {
     ufw)       echo "ufw no está instalado (el cortafuegos de casa lo necesita)" ;;
     zen)       echo "no hay perfil de Zen (${ZEN_DIR:-$HOME/.config/zen}/profiles.ini)" ;;
     autofirma) echo "AutoFirma no está instalado (/usr/bin/autofirma)" ;;
+    ppd)       echo "power-profiles-daemon no está instalado (pacman -S power-profiles-daemon)" ;;
   esac
 }
 
