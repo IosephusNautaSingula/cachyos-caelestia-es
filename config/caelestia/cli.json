@@ -1,0 +1,28 @@
+{
+  "toggles": {
+    "music": {
+      "spotify": {
+        "command": [
+          "spotify"
+        ]
+      }
+    },
+    "sysmon": {
+      "btop": {
+        "enable": false
+      },
+      "missioncenter": {
+        "enable": true,
+        "match": [
+          {
+            "class": "io.missioncenter.MissionCenter"
+          }
+        ],
+        "command": [
+          "missioncenter"
+        ],
+        "move": true
+      }
+    }
+  }
+}

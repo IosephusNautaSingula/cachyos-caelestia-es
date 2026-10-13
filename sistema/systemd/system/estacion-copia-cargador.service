@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# La lanza la regla de udev 90-estacion-copia-cargador.rules al enchufar el cargador.
+[Unit]
+Description=Estación: copia al enchufar el cargador, si hoy aún no hay copia correcta
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Sale «condición no cumplida» (sin error) si ya hay copia correcta hoy
+ExecCondition=/usr/local/bin/estacion-copia hace-falta
+# Margen para que la red vuelva tras suspender/enchufar
+ExecStartPre=/usr/bin/sleep 120
+# Lanza la misma unidad: systemd nunca ejecuta dos instancias de estacion-copia.service a la vez
+ExecStart=/usr/bin/systemctl start --no-block estacion-copia.service

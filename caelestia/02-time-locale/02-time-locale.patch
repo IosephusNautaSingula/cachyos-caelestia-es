@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+diff -u a/services/Time.qml b/services/Time.qml
+--- a/services/Time.qml
++++ b/services/Time.qml
+@@ -18,7 +18,9 @@
+     readonly property string amPmStr: timeComponents[2] ?? ""
+ 
+     function format(fmt: string): string {
+-        return Qt.formatDateTime(clock.date, fmt);
++        // Qt.formatDateTime() with a format string always uses the C locale in Qt 6,
++        // so day and month names would stay in English regardless of the system locale.
++        return Qt.locale().toString(clock.date, fmt);
+     }
+ 
+     SystemClock {

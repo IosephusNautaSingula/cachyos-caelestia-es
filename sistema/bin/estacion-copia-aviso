@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-copia-aviso UNIDAD: avisa en la sesión gráfica del usuario de escritorio (ESTACION_USUARIO) de que una unidad
+# de copia ha fallado, y lo deja en el journal. Lo lanza estacion-copia-aviso@.service (OnFailure= de las unidades).
+# La notificación lleva el hint «x-caelestia-log» (journal:<unidad>) para abrir el registro al pulsarla.
+set -u
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || true
+: "${ESTACION_USUARIO:=}"
+unidad=${1:-estacion-copia.service}
+[[ $unidad == *.* ]] || unidad="$unidad.service"
+logger -t estacion-copia -p user.err "FALLO en $unidad (journalctl -u $unidad)"
+[[ -n $ESTACION_USUARIO ]] || exit 0
+uid=$(id -u "$ESTACION_USUARIO" 2>/dev/null) || exit 0
+[[ -S /run/user/$uid/bus ]] || exit 0
+runuser -u "$ESTACION_USUARIO" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+  notify-send -u critical -a "Copias" -i dialog-error -h "string:x-caelestia-log:journal:$unidad" \
+  "La copia de seguridad ha fallado" "Unidad $unidad. Detalles: journalctl -u $unidad -n 50"

@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+diff -u a/plugin/src/Caelestia/I18n/Units.qml b/plugin/src/Caelestia/I18n/Units.qml
+--- a/plugin/src/Caelestia/I18n/Units.qml
++++ b/plugin/src/Caelestia/I18n/Units.qml
+@@ -95,10 +95,15 @@
+         };
+     }
+ 
++    // Same digits as before, with the locale's decimal separator (no grouping, so English output is unchanged)
++    function _localeDecimal(text: string): string {
++        return text.replace(".", Qt.locale().decimalPoint);
++    }
++
+     // Scales and formats a raw byte count
+     function formatBytes(bytes: real, rate = false): string {
+         const s = _scaleBytes(bytes, bytes);
+-        return withDataUnit(s.value.toFixed(s.value < 10 && s.unit !== "B" ? 1 : 0), s.unit + (rate ? "/s" : ""));
++        return withDataUnit(_localeDecimal(s.value.toFixed(s.value < 10 && s.unit !== "B" ? 1 : 0)), s.unit + (rate ? "/s" : ""));
+     }
+ 
+     // Formats a used/total pair given in KiB, both scaled to the total's magnitude
+@@ -107,6 +112,6 @@
+         const used = _scaleBytes(usedKib * 1024, refBytes);
+         const total = _scaleBytes(refBytes, refBytes);
+         // TRANSLATORS: %1 = used amount, %2 = total amount with unit
+-        return Tr.trCtx("%1 / %2", "used / total amount").arg(+used.value.toFixed(1)).arg(withDataUnit(+total.value.toFixed(1), total.unit));
++        return Tr.trCtx("%1 / %2", "used / total amount").arg(_localeDecimal(String(+used.value.toFixed(1)))).arg(withDataUnit(_localeDecimal(String(+total.value.toFixed(1))), total.unit));
+     }
+ }
+diff -u a/services/Nmcli.qml b/services/Nmcli.qml
+--- a/services/Nmcli.qml
++++ b/services/Nmcli.qml
+@@ -1682,7 +1682,7 @@
+                 } else if (mbit >= 1000) {
+                     const gbps = mbit / 1000;
+                     // TRANSLATORS: %1 = a number
+-                    root.ethernetSpeed = Tr.tr("%1 Gbps").arg(Number.isInteger(gbps) ? gbps : gbps.toFixed(1));
++                    root.ethernetSpeed = Tr.tr("%1 Gbps").arg(Number.isInteger(gbps) ? gbps : gbps.toFixed(1).replace(".", Qt.locale().decimalPoint));
+                 } else {
+                     // TRANSLATORS: %1 = a number
+                     root.ethernetSpeed = Tr.tr("%1 Mbps").arg(mbit);

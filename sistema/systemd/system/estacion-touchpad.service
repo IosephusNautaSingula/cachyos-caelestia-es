@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Solo se instala si existe /sys/bus/acpi/devices/${TOUCHPAD_HID}:* (vea el README). El script vuelve a comprobarlo
+# y sale sin hacer nada si el touchpad configurado no existe.
+[Unit]
+Description=Estación: recuperar el touchpad I2C si no aparece al arrancar
+After=systemd-udev-trigger.service systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/estacion-touchpad --esperar 15
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Estación: al volver de suspensión (o de hibernación o híbrida), si falta el touchpad configurado, recuperarlo.
+# Se lanza FUERA del cgroup de systemd-suspend.service (que es oneshot y mata sus procesos al terminar) con
+# systemd-run --no-block: no retrasa el despertar y la recuperación sobrevive.
+case "$1" in
+  post) systemd-run --no-block --collect --quiet --unit="estacion-touchpad-reanudar-$(date +%s)" \
+          /usr/local/bin/estacion-touchpad --esperar 5 >/dev/null 2>&1 ;;
+esac
+exit 0

@@ -1,0 +1,198 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+diff -u a/modules/notifications/Notification.qml b/modules/notifications/Notification.qml
+--- a/modules/notifications/Notification.qml
++++ b/modules/notifications/Notification.qml
+@@ -81,12 +81,11 @@
+             }
+         }
+         onClicked: event => {
+-            if (!GlobalConfig.notifs.actionOnClick || event.button !== Qt.LeftButton)
++            // Clicking takes you to the app: its "default" action, its window or its log (see NotifData.activate()).
++            // Ignored while the popup is being swiped away.
++            if (event.button !== Qt.LeftButton || Math.abs(root.x) > 4)
+                 return;
+-
+-            const actions = root.modelData.actions;
+-            if (actions.length === 1)
+-                actions[0].invoke();
++            root.modelData.activate();
+         }
+ 
+         Item {
+diff -u a/modules/sidebar/NotifGroupList.qml b/modules/sidebar/NotifGroupList.qml
+--- a/modules/sidebar/NotifGroupList.qml
++++ b/modules/sidebar/NotifGroupList.qml
+@@ -101,6 +101,13 @@
+                 else
+                     modelData?.close();
+             }
++            // Clicking an entry takes you to its app, like the popup, and closes the sidebar
++            onClicked: event => {
++                if (event.button !== Qt.LeftButton || Math.abs(x) > 4 || notifInner.body?.hoveredLink)
++                    return;
++                if (modelData?.activate())
++                    root.screenState.sidebar = false;
++            }
+ 
+             ParallelAnimation {
+                 running: notif.modelData?.closed ?? false
+diff -u a/services/NotifData.qml b/services/NotifData.qml
+--- a/services/NotifData.qml
++++ b/services/NotifData.qml
+@@ -51,7 +51,12 @@
+     property int urgency: NotificationUrgency.Normal
+     property bool resident
+     property bool hasActionIcons
+-    property list<var> actions
++    property list<var> actions // Shown as buttons; the "default" action is kept apart in defaultAction
++    property var defaultAction // Invoked by clicking the notification itself; not persisted across restarts
++    property string desktopEntry
++    // Optional log to open on click for notifications that have no app to go back to, from the
++    // "x-caelestia-log" hint: "journal:<unit>" or an absolute path to a file in the user's state directory
++    property string logTarget
+ 
+     readonly property bool hasFullscreen: {
+         const monitor = Hypr.focusedMonitor;
+@@ -166,17 +171,12 @@
+         }
+ 
+         function onActionsChanged(): void {
+-            // qmllint disable unresolved-type
+-            notif.actions = notif.notification.actions.map(a => ({
+-                        // qmllint enable unresolved-type
+-                        identifier: a.identifier,
+-                        text: a.text,
+-                        invoke: () => a.invoke()
+-                    }));
++            notif.updateActions();
+         }
+ 
+         function onHintsChanged(): void {
+             notif.hints = notif.notification.hints;
++            notif.logTarget = notif.notification.hints?.["x-caelestia-log"] ?? notif.logTarget;
+         }
+ 
+         target: notif.notification
+@@ -217,6 +217,89 @@
+             close();
+     }
+ 
++    function updateActions(): void {
++        // qmllint disable unresolved-type
++        const all = notification.actions.map(a => ({
++                    // qmllint enable unresolved-type
++                    identifier: a.identifier,
++                    text: a.text || a.identifier,
++                    invoke: () => a.invoke()
++                }));
++        defaultAction = all.find(a => a.identifier === "default") ?? null;
++        actions = all.filter(a => a.identifier !== "default");
++    }
++
++    // Retry focusing the app shortly after invoking its default action, in case it creates or maps its window late
++    // (e.g. with misc:focus_on_activate disabled the app cannot raise itself). The notification is closed then.
++    readonly property Timer focusRetryTimer: Timer {
++        interval: 700
++        onTriggered: {
++            notif.focusApp(false);
++            notif.close();
++        }
++    }
++
++    // Called when the notification (popup or sidebar entry) is clicked. Returns true if something was done:
++    // 1. The notification is still alive and has a "default" action: invoke it (e.g. a chat app opens the
++    //    conversation) and focus the app's window.
++    // 2. It carries an "x-caelestia-log" hint: open that journal unit or log file in the terminal.
++    // 3. Otherwise focus the app's window (by desktop entry, app name or the .desktop's StartupWMClass), or launch
++    //    the app from its .desktop file if it has no window (e.g. it lives in the tray or was closed).
++    function activate(): bool {
++        if (notification && defaultAction?.invoke) {
++            defaultAction.invoke();
++            popup = false;
++            focusApp(false);
++            focusRetryTimer.start();
++            return true;
++        }
++
++        // Any app can send hints, so only two shapes are accepted: "journal:<unit>" with a validated unit name, or an
++        // absolute path inside the user's state directory without "..". Arguments are passed as a list, never
++        // through a shell.
++        const unit = /^journal:([A-Za-z0-9@._-]+)$/.exec(logTarget)?.[1];
++        const stateDir = (Quickshell.env("XDG_STATE_HOME") || `${Quickshell.env("HOME")}/.local/state`) + "/";
++        const title = summary || appName;
++        if (unit) {
++            Quickshell.execDetached([...GlobalConfig.general.apps.terminal, "-T", title, "journalctl", "-e", "-n", "300", "-u", unit]);
++            close();
++            return true;
++        }
++        if (stateDir.startsWith("/") && logTarget.startsWith(stateDir) && !logTarget.includes("..")) {
++            Quickshell.execDetached([...GlobalConfig.general.apps.terminal, "-T", title, "less", "+G", logTarget]);
++            close();
++            return true;
++        }
++
++        return focusApp(true);
++    }
++
++    // Focuses the app's window (matching desktop entry, app name, .desktop id or StartupWMClass against the window
++    // class), even on another workspace. With no window and launch = true, starts the app from its .desktop file.
++    function focusApp(launch: bool): bool {
++        // Only installed .desktop files: the desktop entry must be a plain id (no "/" or ".."), otherwise it is ignored
++        const de = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(desktopEntry) && !desktopEntry.includes("..") ? desktopEntry : "";
++        const entry = (de ? DesktopEntries.byId(de) : null) ?? DesktopEntries.heuristicLookup(de || appName);
++        const keys = [de, appName, entry?.id, entry?.startupClass].filter(k => !!k).map(k => k.toLowerCase());
++        if (keys.length === 0)
++            return false;
++
++        const win = Hypr.toplevels.values.find(t => {
++            const cls = (t.lastIpcObject?.class ?? "").toLowerCase();
++            const ini = (t.lastIpcObject?.initialClass ?? "").toLowerCase();
++            return keys.includes(cls) || keys.includes(ini);
++        });
++        if (win) {
++            Hypr.dispatch(Hypr.usingLua ? `hl.dsp.focus({ window = "address:0x${win.address}" })` : `focuswindow address:0x${win.address}`);
++            return true;
++        }
++        if (launch && entry) {
++            entry.execute();
++            return true;
++        }
++        return false;
++    }
++
+     function close(): void {
+         closed = true;
+         if (locks.size === 0 && Notifs.list.includes(this)) {
+@@ -239,15 +322,11 @@
+         maybeTriggerDummyImageLoader();
+         expireTimeout = notification.expireTimeout;
+         hints = notification.hints;
++        desktopEntry = notification.desktopEntry;
++        logTarget = notification.hints?.["x-caelestia-log"] ?? "";
+         urgency = notification.urgency;
+         resident = notification.resident;
+         hasActionIcons = notification.hasActionIcons;
+-        // qmllint disable unresolved-type
+-        actions = notification.actions.map(a => ({
+-                    // qmllint enable unresolved-type
+-                    identifier: a.identifier,
+-                    text: a.text,
+-                    invoke: () => a.invoke()
+-                }));
++        updateActions();
+     }
+ }
+diff -u a/services/Notifs.qml b/services/Notifs.qml
+--- a/services/Notifs.qml
++++ b/services/Notifs.qml
+@@ -69,7 +69,9 @@
+                     urgency: n.urgency,
+                     resident: n.resident,
+                     hasActionIcons: n.hasActionIcons,
+-                    actions: n.actions
++                    actions: n.actions,
++                    desktopEntry: n.desktopEntry,
++                    logTarget: n.logTarget
+                 }))))
+     }
+ 

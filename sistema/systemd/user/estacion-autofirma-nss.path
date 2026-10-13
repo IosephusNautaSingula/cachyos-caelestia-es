@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: relanzar estacion-autofirma-nss cuando AutoFirma regenere su autoridad
+
+[Path]
+PathChanged=%h/.afirma/Autofirma/AutoFirma_ROOT.cer
+
+[Install]
+WantedBy=default.target

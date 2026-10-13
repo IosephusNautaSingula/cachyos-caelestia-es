@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Herramientas de usuario con mise (sin instalarlas en el sistema). Ruta: ~/.config/mise/config.toml
+[tools]
+chezmoi = "2.73.0"
+node = "lts"
+gitleaks = "8.30.1"   # para revisar secretos antes de cada commit de los dotfiles

@@ -1,0 +1,542 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+diff -u a/components/controls/IconButton.qml b/components/controls/IconButton.qml
+--- a/components/controls/IconButton.qml
++++ b/components/controls/IconButton.qml
+@@ -12,13 +12,13 @@
+     font: Tokens.font.icon.medium
+     padding: type === IconButton.Text ? Tokens.padding.extraSmall / 2 : Tokens.padding.small
+ 
+-    activeColour: type === IconButton.Filled ? Colours.palette.m3primary : Colours.palette.m3secondary
++    activeColour: type === IconButton.Filled ? Colours.palette.m3primary : Colours.palette.m3primary
+     inactiveColour: {
+         if (!isToggle && type === IconButton.Filled)
+             return Colours.palette.m3primary;
+         return type === IconButton.Filled ? Colours.tPalette.m3surfaceContainer : Colours.palette.m3secondaryContainer;
+     }
+-    activeOnColour: type === IconButton.Filled ? Colours.palette.m3onPrimary : type === IconButton.Tonal ? Colours.palette.m3onSecondary : Colours.palette.m3primary
++    activeOnColour: type === IconButton.Filled ? Colours.palette.m3onPrimary : type === IconButton.Tonal ? Colours.palette.m3onPrimary : Colours.palette.m3primary
+     inactiveOnColour: {
+         if (!isToggle && type === IconButton.Filled)
+             return Colours.palette.m3onPrimary;
+diff -u a/components/controls/IconTextButton.qml b/components/controls/IconTextButton.qml
+--- a/components/controls/IconTextButton.qml
++++ b/components/controls/IconTextButton.qml
+@@ -17,7 +17,7 @@
+     horizontalPadding: Tokens.padding.medium
+     verticalPadding: Tokens.padding.small
+ 
+-    activeColour: type === TextButton.Filled ? Colours.palette.m3primary : Colours.palette.m3secondary
++    activeColour: type === TextButton.Filled ? Colours.palette.m3primary : Colours.palette.m3primary
+     inactiveColour: {
+         if (!isToggle && type === TextButton.Filled)
+             return Colours.palette.m3primary;
+@@ -26,7 +26,7 @@
+     activeOnColour: {
+         if (type === TextButton.Text)
+             return Colours.palette.m3primary;
+-        return type === TextButton.Filled ? Colours.palette.m3onPrimary : Colours.palette.m3onSecondary;
++        return type === TextButton.Filled ? Colours.palette.m3onPrimary : Colours.palette.m3onPrimary;
+     }
+     inactiveOnColour: {
+         if (!isToggle && type === TextButton.Filled)
+diff -u a/components/controls/StyledScrollBar.qml b/components/controls/StyledScrollBar.qml
+--- a/components/controls/StyledScrollBar.qml
++++ b/components/controls/StyledScrollBar.qml
+@@ -62,7 +62,7 @@
+             return 0;
+         }
+         radius: Tokens.rounding.full
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3primary
+ 
+         MouseArea {
+             id: mouse
+diff -u a/components/controls/TextButton.qml b/components/controls/TextButton.qml
+--- a/components/controls/TextButton.qml
++++ b/components/controls/TextButton.qml
+@@ -12,7 +12,7 @@
+     horizontalPadding: Tokens.padding.medium
+     verticalPadding: Tokens.padding.small
+ 
+-    activeColour: type === TextButton.Filled ? Colours.palette.m3primary : Colours.palette.m3secondary
++    activeColour: type === TextButton.Filled ? Colours.palette.m3primary : Colours.palette.m3primary
+     inactiveColour: {
+         if (!isToggle && type === TextButton.Filled)
+             return Colours.palette.m3primary;
+@@ -21,7 +21,7 @@
+     activeOnColour: {
+         if (type === TextButton.Text)
+             return Colours.palette.m3primary;
+-        return type === TextButton.Filled ? Colours.palette.m3onPrimary : Colours.palette.m3onSecondary;
++        return type === TextButton.Filled ? Colours.palette.m3onPrimary : Colours.palette.m3onPrimary;
+     }
+     inactiveOnColour: {
+         if (!isToggle && type === TextButton.Filled)
+diff -u a/modules/background/DesktopClock.qml b/modules/background/DesktopClock.qml
+--- a/modules/background/DesktopClock.qml
++++ b/modules/background/DesktopClock.qml
+@@ -21,7 +21,7 @@
+     readonly property bool invertColors: Config.background.desktopClock.invertColors
+     readonly property bool useLightSet: Colours.light ? !invertColors : invertColors
+     readonly property color safePrimary: useLightSet ? Colours.palette.m3primaryContainer : Colours.palette.m3primary
+-    readonly property color safeSecondary: useLightSet ? Colours.palette.m3secondaryContainer : Colours.palette.m3secondary
++    readonly property color safeSecondary: useLightSet ? Colours.palette.m3secondaryContainer : Colours.palette.m3onSurface
+     readonly property color safeTertiary: useLightSet ? Colours.palette.m3tertiaryContainer : Colours.palette.m3tertiary
+ 
+     implicitWidth: layout.implicitWidth + (Tokens.padding.large * 4 * root.clockScale)
+diff -u a/modules/dashboard/Performance.qml b/modules/dashboard/Performance.qml
+--- a/modules/dashboard/Performance.qml
++++ b/modules/dashboard/Performance.qml
+@@ -96,7 +96,7 @@
+                         subLabel: Gpu.name || (Gpu.detecting ? Tr.tr("Detecting GPU...") : Tr.trCtx("None", "GPU name"))
+                         usage: Gpu.percentage
+                         temperature: Gpu.temperature
+-                        accent: Colours.palette.m3secondary
++                        accent: Colours.palette.m3primary
+ 
+                         ServiceRef {
+                             service: Gpu
+diff -u a/modules/dashboard/WeatherTab.qml b/modules/dashboard/WeatherTab.qml
+--- a/modules/dashboard/WeatherTab.qml
++++ b/modules/dashboard/WeatherTab.qml
+@@ -82,7 +82,7 @@
+                     Layout.alignment: Qt.AlignVCenter
+                     text: Weather.icon
+                     fontStyle: Tokens.font.icon.builders.extraLarge.scale(3).build()
+-                    color: Colours.palette.m3secondary
++                    color: Colours.palette.m3onSurface
+                     animate: true
+                 }
+ 
+@@ -114,7 +114,7 @@
+                 icon: "water_drop"
+                 label: Tr.tr("Humidity")
+                 value: Strings.percent(Weather.humidity)
+-                colour: Colours.palette.m3secondary
++                colour: Colours.palette.m3onSurface
+             }
+             DetailCard {
+                 icon: "thermostat"
+@@ -186,7 +186,7 @@
+                             Layout.alignment: Qt.AlignHCenter
+                             text: forecastItem.modelData.icon
+                             fontStyle: Tokens.font.icon.extraLarge
+-                            color: Colours.palette.m3secondary
++                            color: Colours.palette.m3onSurface
+                         }
+ 
+                         StyledText {
+diff -u a/modules/dashboard/dash/DateTime.qml b/modules/dashboard/dash/DateTime.qml
+--- a/modules/dashboard/dash/DateTime.qml
++++ b/modules/dashboard/dash/DateTime.qml
+@@ -24,7 +24,7 @@
+             Layout.bottomMargin: -(font.pointSize * 0.4)
+             Layout.alignment: Qt.AlignHCenter
+             text: Time.hourStr
+-            color: Colours.palette.m3secondary
++            color: Colours.palette.m3onSurface
+             font: Tokens.font.clock.size(28).weight(Font.DemiBold).build()
+         }
+ 
+@@ -39,7 +39,7 @@
+             Layout.topMargin: -(font.pointSize * 0.4)
+             Layout.alignment: Qt.AlignHCenter
+             text: Time.minuteStr
+-            color: Colours.palette.m3secondary
++            color: Colours.palette.m3onSurface
+             font: Tokens.font.clock.size(28).weight(Font.DemiBold).build()
+         }
+ 
+@@ -65,7 +65,7 @@
+ 
+             sourceComponent: StyledText {
+                 text: Time.format("ss")
+-                color: Colours.palette.m3secondary
++                color: Colours.palette.m3onSurface
+                 font: Tokens.font.clock.size(28).weight(Font.DemiBold).build()
+             }
+         }
+diff -u a/modules/dashboard/dash/Media.qml b/modules/dashboard/dash/Media.qml
+--- a/modules/dashboard/dash/Media.qml
++++ b/modules/dashboard/dash/Media.qml
+@@ -115,7 +115,7 @@
+         animate: true
+         horizontalAlignment: Text.AlignHCenter
+         text: (Players.active?.trackArtist ?? Tr.tr("No media")) || Tr.tr("Unknown artist")
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3onSurfaceVariant
+ 
+         width: parent.implicitWidth - Tokens.padding.extraLargeIncreased
+         elide: Text.ElideRight
+diff -u a/modules/dashboard/dash/Resources.qml b/modules/dashboard/dash/Resources.qml
+--- a/modules/dashboard/dash/Resources.qml
++++ b/modules/dashboard/dash/Resources.qml
+@@ -49,7 +49,7 @@
+         Resource {
+             icon: "hard_disk"
+             value: Storage.percentage
+-            fgColour: Colours.palette.m3secondary
++            fgColour: Colours.palette.m3primary
+         }
+     }
+     component Resource: CircularProgress {
+diff -u a/modules/dashboard/dash/SmallWeather.qml b/modules/dashboard/dash/SmallWeather.qml
+--- a/modules/dashboard/dash/SmallWeather.qml
++++ b/modules/dashboard/dash/SmallWeather.qml
+@@ -21,7 +21,7 @@
+ 
+         animate: true
+         text: Weather.icon
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3onSurface
+         fontStyle: Tokens.font.icon.builders.extraLarge.scale(1.6).build()
+     }
+ 
+diff -u a/modules/dashboard/media/Details.qml b/modules/dashboard/media/Details.qml
+--- a/modules/dashboard/media/Details.qml
++++ b/modules/dashboard/media/Details.qml
+@@ -56,7 +56,7 @@
+     StyledText {
+         Layout.fillWidth: true
+         text: Players.active?.trackAlbum || Tr.tr("Unknown album")
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3onSurfaceVariant
+         font: Tokens.font.title.medium
+         elide: Text.ElideRight
+         animate: true
+diff -u a/modules/dashboard/performance/NetworkCard.qml b/modules/dashboard/performance/NetworkCard.qml
+--- a/modules/dashboard/performance/NetworkCard.qml
++++ b/modules/dashboard/performance/NetworkCard.qml
+@@ -58,7 +58,7 @@
+ 
+                 anchors.fill: parent
+                 line1: NetworkUsage.uploadBuffer // qmllint disable missing-type
+-                line1Color: Colours.palette.m3secondary
++                line1Color: Colours.palette.m3primary
+                 line1FillAlpha: 0.15
+                 line2: NetworkUsage.downloadBuffer // qmllint disable missing-type
+                 line2Color: Colours.palette.m3tertiary
+@@ -136,7 +136,7 @@
+ 
+             MaterialIcon {
+                 text: "upload"
+-                color: Colours.palette.m3secondary
++                color: Colours.palette.m3primary
+                 fontStyle: Tokens.font.icon.medium
+             }
+ 
+@@ -153,7 +153,7 @@
+             StyledText {
+                 text: Units.formatBytes(NetworkUsage.uploadSpeed ?? 0, true)
+                 font: Tokens.font.body.builders.medium.weight(Font.Medium).build()
+-                color: Colours.palette.m3secondary
++                color: Colours.palette.m3primary
+             }
+         }
+ 
+diff -u a/modules/dashboard/performance/StorageCard.qml b/modules/dashboard/performance/StorageCard.qml
+--- a/modules/dashboard/performance/StorageCard.qml
++++ b/modules/dashboard/performance/StorageCard.qml
+@@ -12,7 +12,7 @@
+ StyledRect {
+     id: root
+ 
+-    readonly property color accent: Colours.palette.m3secondary
++    readonly property color accent: Colours.palette.m3primary
+     readonly property real percentage: Storage.primaryDisk?.perc ?? 0
+ 
+     color: Colours.tPalette.m3surfaceContainer
+diff -u a/modules/lock/NotifGroup.qml b/modules/lock/NotifGroup.qml
+--- a/modules/lock/NotifGroup.qml
++++ b/modules/lock/NotifGroup.qml
+@@ -315,7 +315,7 @@
+         text: {
+             const summary = modelData.summary.replace(/\n/g, " ");
+             const body = modelData.body.replace(/\n/g, " ");
+-            const colour = root.urgency === "critical" ? Colours.palette.m3secondary : Colours.palette.m3outline;
++            const colour = root.urgency === "critical" ? Colours.palette.m3primary : Colours.palette.m3outline;
+ 
+             if (metrics.text === metrics.elidedText)
+                 return `${summary} <span style='color:${colour}'>${body}</span>`;
+diff -u a/modules/lock/Resources.qml b/modules/lock/Resources.qml
+--- a/modules/lock/Resources.qml
++++ b/modules/lock/Resources.qml
+@@ -51,7 +51,7 @@
+             fillValue: Cpu.percentage
+             colour: Colours.palette.m3primary
+             shapeColour: Colours.palette.m3primaryContainer
+-            fillColour: Qt.alpha(Colours.palette.m3secondary, 0.3)
++            fillColour: Qt.alpha(Colours.palette.m3primary, 0.3)
+             shape: MaterialShape.Pentagon
+ 
+             MaterialShape {
+@@ -76,7 +76,7 @@
+                     anchors.verticalCenterOffset: Math.round(fontInfo.pointSize * 0.04)
+ 
+                     text: Units.formatSensorTemp(Cpu.temperature)
+-                    color: Cpu.temperature > 90 ? Colours.palette.m3onErrorContainer : Colours.palette.m3secondary
++                    color: Cpu.temperature > 90 ? Colours.palette.m3onErrorContainer : Colours.palette.m3onSecondaryContainer
+                     font: Tokens.font.title.builders.medium.scale(cpu.width / 112).width(50).build()
+                 }
+             }
+@@ -96,9 +96,9 @@
+             icon: "hard_disk"
+             value: Strings.percentOne(Storage.percentage)
+             fillValue: Storage.percentage
+-            colour: Colours.palette.m3secondary
++            colour: Colours.palette.m3primary
+             shapeColour: Colours.palette.m3secondaryContainer
+-            fillColour: Qt.alpha(Colours.palette.m3secondary, 0.4)
++            fillColour: Qt.alpha(Colours.palette.m3primary, 0.4)
+             shape: MaterialShape.Gem
+         }
+     }
+@@ -162,7 +162,7 @@
+             MaterialIcon {
+                 Layout.alignment: Qt.AlignHCenter
+                 text: res.icon
+-                color: Colours.palette.m3secondary
++                color: Colours.palette.m3onSurface
+                 fontStyle: Tokens.font.icon.builders.medium.scale(root.fontScale).build()
+             }
+ 
+diff -u a/modules/lock/center/Clock.qml b/modules/lock/center/Clock.qml
+--- a/modules/lock/center/Clock.qml
++++ b/modules/lock/center/Clock.qml
+@@ -41,7 +41,7 @@
+         y: -root.calcTopOff(minuteMetrics)
+ 
+         text: Time.minuteStr
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3onSurface
+         font: Tokens.font.headline.builders.large.scale((Units.twelveHourClock ? 3.8 : 7) * root.centerScale).width(30).build()
+ 
+         TextMetrics {
+diff -u a/modules/lock/center/InputField.qml b/modules/lock/center/InputField.qml
+--- a/modules/lock/center/InputField.qml
++++ b/modules/lock/center/InputField.qml
+@@ -69,7 +69,7 @@
+         text: nonAnimPlaceholder.text
+ 
+         animate: true
+-        color: root.pam.passwd.active ? Colours.palette.m3secondary : Colours.palette.m3outline
++        color: root.pam.passwd.active ? Colours.palette.m3primary : Colours.palette.m3outline
+         font: Tokens.font.body.builders.medium.scale(root.centerScale).width(110).build()
+ 
+         opacity: root.buffer ? 0 : 1
+diff -u a/modules/lock/weather/BriefInfo.qml b/modules/lock/weather/BriefInfo.qml
+--- a/modules/lock/weather/BriefInfo.qml
++++ b/modules/lock/weather/BriefInfo.qml
+@@ -36,7 +36,7 @@
+         MaterialIcon {
+             animate: true
+             text: Weather.icon
+-            color: Colours.palette.m3secondary
++            color: Colours.palette.m3onSurface
+             fontStyle: Tokens.font.headline.builders.large.scale(1.5).build()
+         }
+     }
+diff -u a/modules/lock/weather/Forecast.qml b/modules/lock/weather/Forecast.qml
+--- a/modules/lock/weather/Forecast.qml
++++ b/modules/lock/weather/Forecast.qml
+@@ -84,7 +84,7 @@
+                 MaterialIcon {
+                     Layout.alignment: Qt.AlignHCenter
+                     text: hour.cond.icon
+-                    color: Colours.palette.m3secondary
++                    color: Colours.palette.m3onSurface
+                     fontStyle: Tokens.font.icon.large
+                 }
+ 
+diff -u a/modules/nexus/pages/NetworkPage.qml b/modules/nexus/pages/NetworkPage.qml
+--- a/modules/nexus/pages/NetworkPage.qml
++++ b/modules/nexus/pages/NetworkPage.qml
+@@ -239,7 +239,7 @@
+                                 case "error":
+                                     return Colours.palette.m3error;
+                                 default:
+-                                    return Colours.palette.m3secondary;
++                                    return Colours.palette.m3onSurface;
+                                 }
+                             }
+                             font: Tokens.font.label.small
+diff -u a/modules/nexus/pages/network/AllNetworksPage.qml b/modules/nexus/pages/network/AllNetworksPage.qml
+--- a/modules/nexus/pages/network/AllNetworksPage.qml
++++ b/modules/nexus/pages/network/AllNetworksPage.qml
+@@ -163,7 +163,7 @@
+         spacing: Tokens.spacing.extraSmall
+ 
+         icon: ["check_indeterminate_small", "check", "close"][filterState]
+-        inactiveColour: [Colours.palette.m3secondaryContainer, Colours.palette.m3secondary, Colours.palette.m3tertiary][filterState]
+-        inactiveOnColour: [Colours.palette.m3onSecondaryContainer, Colours.palette.m3onSecondary, Colours.palette.m3onTertiary][filterState]
++        inactiveColour: [Colours.palette.m3secondaryContainer, Colours.palette.m3primary, Colours.palette.m3tertiary][filterState]
++        inactiveOnColour: [Colours.palette.m3onSecondaryContainer, Colours.palette.m3onPrimary, Colours.palette.m3onTertiary][filterState]
+     }
+ }
+diff -u a/modules/notifications/Notification.qml b/modules/notifications/Notification.qml
+--- a/modules/notifications/Notification.qml
++++ b/modules/notifications/Notification.qml
+@@ -468,8 +468,8 @@
+                     isRound: true
+                     shapeMorph: true
+                     fillWidth: root.modelData.actions.length === 0
+-                    inactiveColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3secondary : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
+-                    inactiveOnColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onSecondary : Colours.palette.m3onSurfaceVariant
++                    inactiveColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3primary : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
++                    inactiveOnColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                     icon: "close"
+                     padding: Tokens.padding.extraSmall
+                     onClicked: root.modelData.close()
+@@ -484,8 +484,8 @@
+                         isRound: true
+                         shapeMorph: true
+                         fillWidth: true
+-                        inactiveColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3secondary : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
+-                        inactiveOnColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onSecondary : Colours.palette.m3onSurfaceVariant
++                        inactiveColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3primary : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
++                        inactiveOnColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                         text: modelData.text
+                         onClicked: modelData.invoke()
+ 
+@@ -503,8 +503,8 @@
+                     isRound: true
+                     shapeMorph: true
+                     fillWidth: root.modelData.actions.length === 0
+-                    inactiveColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3secondary : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
+-                    inactiveOnColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onSecondary : Colours.palette.m3onSurfaceVariant
++                    inactiveColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3primary : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
++                    inactiveOnColour: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3onPrimary : Colours.palette.m3onSurfaceVariant
+                     icon: copyTimer.running ? "inventory" : "content_copy"
+                     padding: Tokens.padding.extraSmall
+                     onClicked: {
+diff -u a/modules/sidebar/Notif.qml b/modules/sidebar/Notif.qml
+--- a/modules/sidebar/Notif.qml
++++ b/modules/sidebar/Notif.qml
+@@ -90,7 +90,7 @@
+ 
+         sourceComponent: StyledText {
+             text: String(root.modelData?.body ?? "").replace(/\n/g, " ")
+-            color: root.modelData?.urgency === "critical" ? Colours.palette.m3secondary : Colours.palette.m3outline
++            color: root.modelData?.urgency === "critical" ? Colours.palette.m3primary : Colours.palette.m3outline
+             elide: Text.ElideRight
+         }
+     }
+@@ -137,7 +137,7 @@
+             Layout.fillWidth: true
+             textFormat: Text.MarkdownText
+             text: String(root.modelData?.body ?? "").replace(/(.)\n(?!\n)/g, "$1\n\n") || Tr.tr("No body here! :/")
+-            color: root.modelData?.urgency === "critical" ? Colours.palette.m3secondary : Colours.palette.m3outline
++            color: root.modelData?.urgency === "critical" ? Colours.palette.m3primary : Colours.palette.m3outline
+             wrapMode: Text.WordWrap
+ 
+             onLinkActivated: link => {
+diff -u a/modules/utilities/cards/IdleInhibit.qml b/modules/utilities/cards/IdleInhibit.qml
+--- a/modules/utilities/cards/IdleInhibit.qml
++++ b/modules/utilities/cards/IdleInhibit.qml
+@@ -31,14 +31,14 @@
+             implicitHeight: icon.implicitHeight + Tokens.padding.large
+ 
+             radius: Tokens.rounding.full
+-            color: IdleInhibitor.enabled ? Colours.palette.m3secondary : Colours.palette.m3secondaryContainer
++            color: IdleInhibitor.enabled ? Colours.palette.m3primary : Colours.palette.m3secondaryContainer
+ 
+             MaterialIcon {
+                 id: icon
+ 
+                 anchors.centerIn: parent
+                 text: "coffee"
+-                color: IdleInhibitor.enabled ? Colours.palette.m3onSecondary : Colours.palette.m3onSecondaryContainer
++                color: IdleInhibitor.enabled ? Colours.palette.m3onPrimary : Colours.palette.m3onSecondaryContainer
+                 fontStyle: Tokens.font.icon.large
+             }
+         }
+diff -u a/modules/utilities/cards/Record.qml b/modules/utilities/cards/Record.qml
+--- a/modules/utilities/cards/Record.qml
++++ b/modules/utilities/cards/Record.qml
+@@ -46,7 +46,7 @@
+                 }
+ 
+                 radius: Tokens.rounding.full
+-                color: Recorder.running ? Colours.palette.m3secondary : Colours.palette.m3secondaryContainer
++                color: Recorder.running ? Colours.palette.m3primary : Colours.palette.m3secondaryContainer
+ 
+                 MaterialIcon {
+                     id: icon
+@@ -54,7 +54,7 @@
+                     anchors.centerIn: parent
+                     anchors.verticalCenterOffset: 1
+                     text: "screen_record"
+-                    color: Recorder.running ? Colours.palette.m3onSecondary : Colours.palette.m3onSecondaryContainer
++                    color: Recorder.running ? Colours.palette.m3onPrimary : Colours.palette.m3onSecondaryContainer
+                     fontStyle: Tokens.font.icon.large
+                 }
+             }
+diff -u a/modules/utilities/toasts/ToastItem.qml b/modules/utilities/toasts/ToastItem.qml
+--- a/modules/utilities/toasts/ToastItem.qml
++++ b/modules/utilities/toasts/ToastItem.qml
+@@ -21,7 +21,7 @@
+         if (root.modelData.type === Toast.Success)
+             return Colours.palette.m3successContainer;
+         if (root.modelData.type === Toast.Warning)
+-            return Colours.palette.m3secondary;
++            return Colours.palette.m3primary;
+         if (root.modelData.type === Toast.Error)
+             return Colours.palette.m3errorContainer;
+         return Colours.palette.m3surface;
+@@ -102,7 +102,7 @@
+                     if (root.modelData.type === Toast.Success)
+                         return Colours.palette.m3onSuccessContainer;
+                     if (root.modelData.type === Toast.Warning)
+-                        return Colours.palette.m3onSecondary;
++                        return Colours.palette.m3onPrimary;
+                     if (root.modelData.type === Toast.Error)
+                         return Colours.palette.m3onErrorContainer;
+                     return Colours.palette.m3onSurface;
+@@ -119,7 +119,7 @@
+                     if (root.modelData.type === Toast.Success)
+                         return Colours.palette.m3onSuccessContainer;
+                     if (root.modelData.type === Toast.Warning)
+-                        return Colours.palette.m3onSecondary;
++                        return Colours.palette.m3onPrimary;
+                     if (root.modelData.type === Toast.Error)
+                         return Colours.palette.m3onErrorContainer;
+                     return Colours.palette.m3onSurface;
+diff -u a/modules/windowinfo/Details.qml b/modules/windowinfo/Details.qml
+--- a/modules/windowinfo/Details.qml
++++ b/modules/windowinfo/Details.qml
+@@ -38,7 +38,7 @@
+         Layout.topMargin: Tokens.spacing.medium
+         Layout.bottomMargin: Tokens.spacing.largeIncreased
+ 
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3onSurfaceVariant
+     }
+ 
+     Detail {
+@@ -69,7 +69,7 @@
+         icon: "workspaces"
+         // TRANSLATORS: %1 = workspace name, %2 = workspace id
+         text: Tr.tr("Workspace: %1 (%2)").arg(root.client?.workspace.name ?? -1).arg(root.client?.workspace.id ?? -1)
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3onSurfaceVariant
+     }
+ 
+     Detail {
+@@ -114,7 +114,7 @@
+     Detail {
+         icon: "picture_in_picture_center"
+         text: root.client?.lastIpcObject.floating ? Tr.tr("Floating: yes") : Tr.tr("Floating: no")
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3onSurfaceVariant
+     }
+ 
+     Detail {
+@@ -125,7 +125,7 @@
+     Detail {
+         icon: "keep"
+         text: root.client?.lastIpcObject.pinned ? Tr.tr("Pinned: yes") : Tr.tr("Pinned: no")
+-        color: Colours.palette.m3secondary
++        color: Colours.palette.m3onSurfaceVariant
+     }
+ 
+     Detail {

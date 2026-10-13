@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+diff -u a/modules/bar/components/workspaces/Workspace.qml b/modules/bar/components/workspaces/Workspace.qml
+--- a/modules/bar/components/workspaces/Workspace.qml
++++ b/modules/bar/components/workspaces/Workspace.qml
+@@ -31,6 +31,9 @@
+     readonly property bool isOccupied: toplevels.length > 0
+     readonly property bool hasWindows: isOccupied && showWindows && Config.bar.workspaces.maxWindowIcons > 0
+     readonly property bool focused: activeWsId === ws
++    // Workspace with a window that requested attention (urgent): primary colour and a larger indicator until it is
++    // focused (Hyprland clears the flag then). With misc:focus_on_activate disabled this is the only visible hint.
++    readonly property bool urgent: !focused && (Hypr.workspaces.values.find(w => w.id === ws)?.urgent ?? false)
+     readonly property list<int> focusedShapeList: [MaterialShape.Slanted, MaterialShape.Oval, MaterialShape.Pill, MaterialShape.Triangle, MaterialShape.Arrow, MaterialShape.Diamond, MaterialShape.Pentagon, MaterialShape.Gem, MaterialShape.VerySunny, MaterialShape.Sunny, MaterialShape.Cookie4Sided, MaterialShape.Cookie6Sided, MaterialShape.Cookie7Sided, MaterialShape.Cookie9Sided, MaterialShape.Cookie12Sided, MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Ghostish]
+ 
+     property color offMonitorColour: Colours.palette.m3outlineVariant
+@@ -41,6 +44,8 @@
+         return mon && mon !== monitor;
+     }
+     readonly property color fgColour: {
++        if (urgent)
++            return Colours.palette.m3primary;
+         if (onOtherMonitor)
+             return offMonitorColour;
+         if (focused || isOccupied || Config.bar.workspaces.occupiedBg)
+@@ -91,7 +96,7 @@
+             implicitSize: Tokens.sizes.bar.innerWidth - Tokens.padding.small
+ 
+             color: root.fgColour
+-            scale: root.focused ? 2 / 3 : root.isOccupied ? 1 / 3 : 1 / 4
++            scale: root.focused ? 2 / 3 : root.urgent ? 1 / 2 : root.isOccupied ? 1 / 3 : 1 / 4
+ 
+             animationEasing: Tokens.anim.expressiveDefaultSpatial
+             animationDuration: Tokens.anim.durations.expressiveDefaultSpatial * Tokens.anim.durations.scale

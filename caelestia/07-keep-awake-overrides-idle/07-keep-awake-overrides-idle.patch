@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+diff -u a/modules/IdleMonitors.qml b/modules/IdleMonitors.qml
+--- a/modules/IdleMonitors.qml
++++ b/modules/IdleMonitors.qml
+@@ -8,6 +8,7 @@
+ import Caelestia.Config
+ import Caelestia.Services
+ import qs.services
++import qs.services as QsServices
+ 
+ Scope {
+     id: root
+@@ -16,6 +17,9 @@
+     readonly property bool hasPlayer: Players.list.some(p => p.isPlaying)
+     readonly property bool isCharging: !UPower.onBattery
+     readonly property bool enabled: {
++        // The "Keep awake" toggle in the utilities always wins, even for timeouts that ignore other apps' inhibitors
++        if (QsServices.IdleInhibitor.enabled)
++            return false;
+         if (GlobalConfig.general.idle.inhibitWhenAudio && hasPlayer)
+             return false;
+         if (GlobalConfig.general.idle.inhibitWhenCharging && isCharging)

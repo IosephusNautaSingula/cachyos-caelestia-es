@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-copia: copia de seguridad del equipo en un NAS (o cualquier repositorio restic) con restic.
+#
+# Uso (como root; normalmente lo lanzan las unidades estacion-copia*.service):
+#   estacion-copia copia [--forzar]   copia diaria (se salta si ya hay copia correcta hoy, salvo --forzar)
+#   estacion-copia --ahora            copia manual: se salta el límite de una al día, pero exige el cargador
+#                                     enchufado (como ConditionACPower de la unidad) y usa prioridad baja
+#   estacion-copia mantener           forget --prune (retención COPIA_RETENCION) + check
+#                                     (+ check --read-data-subset=10% la primera semana del mes)
+#   estacion-copia hace-falta         sale 0 si hoy aún no hay copia correcta (para el disparo al enchufar)
+#   estacion-copia restic <args>      restic con la configuración del repositorio (p. ej. «snapshots»)
+#
+# Configuración: /etc/estacion/estacion.conf (variables COPIA_*; el entorno tiene prioridad). Secretos (los crea
+# usted, 0600, root): COPIA_CLAVE_RESTIC (contraseña del repositorio) y, en modo smb, COPIA_CREDENCIALES.
+# Modos: COPIA_MODO=smb monta COPIA_RECURSO en COPIA_PUNTO_MONTAJE (SMB 3.1.1 cifrado) y usa COPIA_REPOSITORIO dentro;
+#        COPIA_MODO=directo usa COPIA_REPOSITORIO tal cual (ruta local, sftp:…, rest:…), sin montar nada.
+# Consistencia: si existe la configuración de snapper COPIA_SNAPPER_HOME (por defecto «home»), /home se copia desde
+# una instantánea recién creada; si / es btrfs, /etc se copia desde una instantánea de solo lectura de / (no de
+# snapper, para no tocar el menú del gestor de arranque). Ambas se montan sobre /home y /etc en un espacio de montaje
+# privado y se borran al terminar. Sin btrfs/snapper se copia en vivo. Si el NAS no responde: se registra y se sale
+# sin error. ESTACION_COPIA_CONSERVAR=1 conserva las instantáneas de la copia (para pruebas).
+set -euo pipefail
+
+# Lee VAR=valor de un fichero sin ejecutarlo; no pisa variables ya definidas (manda el entorno). Como root exige que
+# el fichero sea de root y no escribible por otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  if [[ $EUID -eq 0 ]]; then
+    read -r k v < <(stat -c '%u %a' "$f")
+    if [[ $k != 0 ]] || (( 8#$v & 8#022 )); then echo "[estacion-copia] $f no es de root o lo pueden escribir otros: se ignora" >&2; return 1; fi
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || exit 1
+: "${COPIA_MODO:=smb}" "${COPIA_NAS:=}" "${COPIA_PUERTO:=445}" "${COPIA_RECURSO:=}"
+: "${COPIA_PUNTO_MONTAJE:=/mnt/estacion-nas}" "${COPIA_REPOSITORIO:=}"
+: "${COPIA_CREDENCIALES:=/etc/estacion/smb-credenciales}" "${COPIA_CLAVE_RESTIC:=/etc/estacion/restic-clave}"
+: "${COPIA_EXCLUIR:=/etc/estacion/excluir.txt}" "${COPIA_SNAPPER_HOME:=home}"
+: "${COPIA_RETENCION:=--keep-daily 7 --keep-weekly 4 --keep-monthly 12}"
+
+export RESTIC_REPOSITORY="$COPIA_REPOSITORIO" RESTIC_PASSWORD_FILE="$COPIA_CLAVE_RESTIC"
+export RESTIC_CACHE_DIR=/var/cache/estacion-copia XDG_CACHE_HOME=/var/cache/estacion-copia
+ESTADO=/var/lib/estacion-copia; SISTEMA="$ESTADO/sistema"
+CERROJO=/run/estacion-copia.lock
+SNAP_HOME=                        # directorio .snapshots de la configuración de snapper de /home (si la hay)
+TEMP_HOME=; TEMP_RAIZ=            # temporales de la copia en curso (las borra limpiar_temporales al salir)
+hoy=$(date +%F)
+
+log() { echo "[estacion-copia] $*"; }
+
+configuracion_completa() {
+  local falta=()
+  [[ -n $COPIA_REPOSITORIO ]] || falta+=("COPIA_REPOSITORIO")
+  [[ -s $COPIA_CLAVE_RESTIC ]] || falta+=("la clave del repositorio ($COPIA_CLAVE_RESTIC)")
+  if [[ $COPIA_MODO == smb ]]; then
+    [[ -n $COPIA_RECURSO ]] || falta+=("COPIA_RECURSO")
+    [[ -s $COPIA_CREDENCIALES ]] || falta+=("las credenciales SMB ($COPIA_CREDENCIALES)")
+  fi
+  if (( ${#falta[@]} )); then log "Configuración incompleta: falta ${falta[*]}. Vea el README."; return 1; fi
+}
+
+# Sin COPIA_NAS (repositorio local) no se comprueba la red
+nas_responde() { [[ -z $COPIA_NAS ]] || timeout 5 bash -c "exec 3<>/dev/tcp/$COPIA_NAS/$COPIA_PUERTO" 2>/dev/null; }
+
+montar_smb() {
+  [[ $COPIA_MODO == smb ]] || return 0
+  mountpoint -q "$COPIA_PUNTO_MONTAJE" && return 0
+  install -d -m 0700 "$COPIA_PUNTO_MONTAJE"
+  mount -t cifs "$COPIA_RECURSO" "$COPIA_PUNTO_MONTAJE" \
+    -o "credentials=$COPIA_CREDENCIALES,vers=3.1.1,seal,uid=0,gid=0,file_mode=0600,dir_mode=0700,noperm"
+}
+desmontar_smb() { [[ $COPIA_MODO == smb ]] && mountpoint -q "$COPIA_PUNTO_MONTAJE" && umount "$COPIA_PUNTO_MONTAJE" || true; }
+
+# Limpieza al salir de una copia (trap EXIT), haya ido bien o mal. Cada paso va protegido para que un fallo no corte
+# los siguientes; primero lo crítico (desmontar el NAS y borrar la raíz temporal), después la temporal de /home.
+# Con UNIQUE_NUMBERS (snapper >= 0.13.2, por defecto yes) snapper conserva A PROPÓSITO el directorio VACÍO de la
+# instantánea de número más alto que borra, para no reutilizar el número: es normal. Solo se avisa si queda CONTENIDO.
+limpiar_temporales() {
+  desmontar_smb || log "AVISO: no se pudo desmontar el NAS ($COPIA_PUNTO_MONTAJE)"
+  if [[ -n $TEMP_RAIZ && -e $TEMP_RAIZ ]]; then
+    btrfs subvolume delete "$TEMP_RAIZ" >/dev/null 2>&1 || log "AVISO: no se pudo borrar la raíz temporal $TEMP_RAIZ"
+  fi
+  if [[ -n $TEMP_HOME ]]; then
+    local dir="$SNAP_HOME/$TEMP_HOME" queda
+    snapper -c "$COPIA_SNAPPER_HOME" delete "$TEMP_HOME" || log "AVISO: snapper no pudo borrar la temporal #$TEMP_HOME"
+    queda=$(ls -A "$dir" 2>/dev/null | paste -sd' ' || true)
+    [[ -n $queda ]] && log "AVISO: tras borrar la temporal, $dir no está vacío (contiene: $queda)"
+  fi
+  return 0
+}
+
+hace_falta() { [[ "$(cat "$ESTADO/ultima-correcta-fecha" 2>/dev/null)" != "$hoy" ]]; }
+
+# Datos para reconstruir el equipo: listas de paquetes, configuración del arranque y particiones
+datos_sistema() {
+  install -d -m 0755 "$SISTEMA" "$SISTEMA/arranque"
+  if command -v pacman >/dev/null; then
+    pacman -Qqe  > "$SISTEMA/paquetes-explicitos.txt"
+    pacman -Qqm  > "$SISTEMA/paquetes-ajenos-aur-locales.txt"
+    pacman -Q    > "$SISTEMA/paquetes-todos-con-version.txt"
+    pacman -Qqen > "$SISTEMA/paquetes-explicitos-repositorios.txt"
+  fi
+  local f
+  for f in /boot/limine.conf /boot/limine/limine.conf /boot/loader/loader.conf; do
+    [[ -r $f ]] && cp -a "$f" "$SISTEMA/arranque/"
+  done
+  { lsblk -f; echo; findmnt -t btrfs,vfat; echo; btrfs subvolume list / 2>/dev/null; } > "$SISTEMA/arranque/discos-y-subvolumenes.txt" 2>&1 || true
+  command -v snapper >/dev/null && { snapper list-configs > "$SISTEMA/arranque/snapper-configs.txt" 2>&1 || true; }
+  return 0
+}
+
+copia() {
+  local forzar=${1:-}
+  if [[ $forzar != --forzar ]] && ! hace_falta; then log "Ya hay una copia correcta hoy ($hoy); nada que hacer."; return 0; fi
+  if ! nas_responde; then log "El NAS ($COPIA_NAS:$COPIA_PUERTO) no responde; se reintentará (sin error)."; return 0; fi
+  # La limpieza se arma antes de montar el NAS: así se desmonta aunque falle cualquier paso posterior
+  if [[ ${ESTACION_COPIA_CONSERVAR:-} == 1 ]]; then trap desmontar_smb EXIT; else trap limpiar_temporales EXIT; fi
+  montar_smb
+  datos_sistema
+
+  local origen_home=/home origen_etc=/etc raiz=/.estacion-copia-raiz excl=()
+  [[ -r $COPIA_EXCLUIR ]] && excl=(--exclude-file "$COPIA_EXCLUIR")
+
+  # /home desde una instantánea de snapper, si hay configuración para ello
+  if [[ -n $COPIA_SNAPPER_HOME ]] && command -v snapper >/dev/null &&
+     SNAP_HOME=$(snapper -c "$COPIA_SNAPPER_HOME" --csvout get-config 2>/dev/null | awk -F, '$1=="SUBVOLUME"{print $2}') &&
+     [[ -n $SNAP_HOME ]]; then
+    SNAP_HOME="${SNAP_HOME%/}/.snapshots"
+    TEMP_HOME=$(snapper -c "$COPIA_SNAPPER_HOME" create --description "estacion-copia (temporal)" --cleanup-algorithm number --print-number)
+    origen_home="$SNAP_HOME/$TEMP_HOME/snapshot"
+  else
+    log "Sin configuración de snapper «$COPIA_SNAPPER_HOME»: /home se copia en vivo."
+  fi
+  # /etc desde una instantánea btrfs de solo lectura de /
+  if [[ $(findmnt -no FSTYPE /) == btrfs ]]; then
+    [[ -e $raiz ]] && btrfs subvolume delete "$raiz" >/dev/null
+    btrfs subvolume snapshot -r / "$raiz" >/dev/null
+    TEMP_RAIZ=$raiz; origen_etc="$raiz/etc"
+  else
+    log "/ no es btrfs: /etc se copia en vivo."
+  fi
+  if [[ ${ESTACION_COPIA_CONSERVAR:-} == 1 ]]; then
+    echo "${TEMP_HOME:-}" > "$ESTADO/prueba-instantanea-home"
+    log "PRUEBA: se conservan las instantáneas (home #${TEMP_HOME:-ninguna}, raíz ${TEMP_RAIZ:-ninguna})"
+  fi
+  log "Origen: /home ← $origen_home · /etc ← $origen_etc"
+
+  # Las rutas de la copia quedan como /home y /etc (las exclusiones se escriben así)
+  unshare -m --propagation private bash -euo pipefail -s -- "$origen_home" "$origen_etc" "$SISTEMA" "${excl[@]}" <<'EOF'
+oh=$1 oe=$2 sis=$3; shift 3
+[[ $oh != /home ]] && mount --bind "$oh" /home
+[[ $oe != /etc ]] && mount --bind "$oe" /etc
+restic backup /home /etc "$sis" "$@" --exclude-caches --tag diaria \
+  --host "$(cat /proc/sys/kernel/hostname)" --compression auto --no-scan
+EOF
+  date +%s > "$ESTADO/ultima-correcta"; echo "$hoy" > "$ESTADO/ultima-correcta-fecha"
+  chmod 0644 "$ESTADO/ultima-correcta" "$ESTADO/ultima-correcta-fecha"
+  log "Copia correcta. $(restic snapshots --latest 1 --compact 2>/dev/null | sed -n '3p')"
+}
+
+mantener() {
+  if ! nas_responde; then log "El NAS no responde; mantenimiento aplazado (sin error)."; return 0; fi
+  montar_smb; trap desmontar_smb EXIT
+  local retencion
+  read -r -a retencion <<<"$COPIA_RETENCION"
+  restic forget "${retencion[@]}" --prune --quiet
+  restic check --quiet
+  if (( 10#$(date +%d) <= 7 )); then log "Primera semana del mes: comprobando el 10 % de los datos"; restic check --read-data-subset=10% --quiet; fi
+  date +%s > "$ESTADO/ultimo-mantenimiento"; chmod 0644 "$ESTADO/ultimo-mantenimiento"
+  log "Mantenimiento correcto."
+}
+
+uso() { echo "uso: estacion-copia copia [--forzar] | --ahora | mantener | hace-falta | restic <args>" >&2; exit 2; }
+
+[[ $EUID -eq 0 ]] || { echo "estacion-copia: hay que ejecutarlo como root" >&2; exit 1; }
+case ${1:-copia} in copia|--ahora|mantener|hace-falta|restic) ;; *) uso ;; esac
+install -d -m 0755 "$ESTADO"; install -d -m 0700 "$RESTIC_CACHE_DIR"
+configuracion_completa || exit 1   # también para hace-falta: 1 = «no hace falta» (ExecCondition)
+# Copia manual: sin límite diario, con la comprobación del cargador y la misma prioridad baja que la unidad
+if [[ ${1:-} == --ahora ]]; then
+  if ! /usr/bin/systemd-ac-power; then
+    log "Sin cargador enchufado: la copia manual exige corriente (como la diaria). Enchúfelo y repita."; exit 1
+  fi
+  renice -n 19 -p $$ >/dev/null; ionice -c 3 -p $$ 2>/dev/null || true
+  log "Copia manual (--ahora): se salta el límite de una copia al día."
+  set -- copia --forzar
+fi
+case ${1:-copia} in
+  hace-falta) hace_falta; exit ;;
+  restic) shift; montar_smb; trap desmontar_smb EXIT; restic "$@"; exit ;;
+esac
+exec 9>"$CERROJO"
+if ! flock -n 9; then log "Ya hay una copia o un mantenimiento en marcha; no se lanza otro."; exit 0; fi
+case ${1:-copia} in
+  copia)    copia "${2:-}" ;;
+  mantener) mantener ;;
+esac

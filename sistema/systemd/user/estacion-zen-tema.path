@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: vigilar el esquema de Caelestia para el tema de Zen
+
+[Path]
+PathChanged=%h/.local/state/caelestia/scheme.json
+
+[Install]
+WantedBy=default.target

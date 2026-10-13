@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Oculta esta entrada del lanzador; el original sigue en /usr/share/applications.
+# Copiar a ~/.local/share/applications/ (borrar el fichero la vuelve a mostrar).
+[Desktop Entry]
+Type=Application
+Name=About Xfce
+NoDisplay=true

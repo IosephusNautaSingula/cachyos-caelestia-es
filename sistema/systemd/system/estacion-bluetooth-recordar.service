@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: recordar el estado del Bluetooth entre reinicios
+# Arranca después de bluetoothd y se para antes que él (así puede leer el estado al apagar el equipo)
+After=bluetooth.service
+Requires=bluetooth.service
+PartOf=bluetooth.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/estacion-bluetooth-recordar restaurar
+ExecStop=/usr/local/bin/estacion-bluetooth-recordar guardar
+
+[Install]
+WantedBy=bluetooth.service

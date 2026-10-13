@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-comprobar-caelestia: comprobador semanal de versiones de caelestia-shell para un paquete local parcheado
+# (CAELESTIA_PKG en CAELESTIA_PKG_DIR). Solo usuario, sin root. No toca el paquete instalado ni su directorio.
+#  - Versión publicada: GitHub releases (gh api; respaldo curl sin autenticar) y, si falla, la RPC de AUR.
+#  - Si hay versión nueva: descarga el tarball en un temporal nuevo, prueba en orden TODOS los parches del array
+#    source del PKGBUILD (patch --dry-run y luego aplicado en el temporal para que se apilen), comprueba el punto de
+#    inserción de es.po en CMakeLists.txt, genera raw.pot (mismo xgettext que scripts/trs.fish, sin ejecutar el
+#    script descargado) y cuenta con msgmerge + msgfmt --statistics lo que falta por traducir.
+#  - Avisa con notify-send (hint x-caelestia-log con la ruta del informe).
+#  Informe: ${XDG_STATE_HOME:-~/.local/state}/estacion/comprobador-AAAA-MM-DD.log
+# Comprobaciones opcionales (cada una: auto | 1 | 0; «auto» = solo si aplica en este equipo):
+#   COMPROBAR_UDEV (1)       reglas en /etc/udev/rules.d que no sean 90-estacion-*.rules ni estén en UDEV_PERMITIDAS
+#   COMPROBAR_FOCO (0)       que misc:focus_on_activate de Hyprland siga valiendo FOCO_ESPERADO (false)
+#   COMPROBAR_TPM (auto)     que el PCR 7 y la versión de la BIOS sigan como al inscribir el TPM (TPM_ESTADO_DIR,
+#                            ficheros pcr y bios; si cambian, el TPM ya no abrirá el disco)
+#   COMPROBAR_PARSEC (auto)  que Parsec no haya cambiado solo sus parsecd-*.so de ~/.parsec
+#   COMPROBAR_AUTOFIRMA (auto) integración de AutoFirma (estacion-autofirma-nss --comprobar) y caducidad (30 días) de
+#                            los certificados personales del almacén del navegador (NAVEGADOR)
+# Configuración: entorno, ~/.config/estacion/estacion.conf o /etc/estacion/estacion.conf.
+# Prueba: ESTACION_PRUEBA_VERSION=X.Y.Z estacion-comprobar-caelestia  (trata esa versión como nueva)
+set -uo pipefail
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${XDG_CONFIG_HOME:-$HOME/.config}/estacion/estacion.conf" || true
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || true
+: "${CAELESTIA_PKG:=caelestia-shell-es}" "${CAELESTIA_PKG_DIR:=}" "${CAELESTIA_REPO:=caelestia-dots/shell}"
+: "${COMPROBAR_UDEV:=1}" "${UDEV_PERMITIDAS:=}" "${COMPROBAR_FOCO:=0}" "${FOCO_ESPERADO:=false}"
+: "${COMPROBAR_TPM:=auto}" "${TPM_ESTADO_DIR:=/var/lib/estacion-tpm}"
+: "${COMPROBAR_PARSEC:=auto}" "${COMPROBAR_AUTOFIRMA:=auto}"
+
+PKGDIR=$CAELESTIA_PKG_DIR
+ESTADO="${XDG_STATE_HOME:-$HOME/.local/state}/estacion"
+LOG="$ESTADO/comprobador-$(date +%F).log"
+REPO=$CAELESTIA_REPO
+mkdir -p "$ESTADO"
+
+log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG"; }
+avisar() { notify-send -a "Caelestia" -i system-software-update -h "string:x-caelestia-log:$LOG" "$1" "$2" 2>/dev/null || log "notify-send falló"; }
+informe="Informe: ${LOG/#$HOME/\~}"
+
+# --- Reglas de udev ajenas: p. ej. «Run Additional Setup» de Mission Center vuelve a crear 99-powercap.rules
+#     (energy_uj legible por todos), que anula la regla 90-estacion-powercap.rules.
+if [[ $COMPROBAR_UDEV == 1 ]]; then
+  ajenas=
+  for r in /etc/udev/rules.d/*.rules; do
+    [[ -e $r ]] || continue
+    n=${r##*/}
+    [[ $n == 90-estacion-*.rules || " $UDEV_PERMITIDAS " == *" $n "* ]] && continue
+    ajenas+="$n "
+  done
+  if [[ -n $ajenas ]]; then
+    log "AVISO: reglas de udev ajenas en /etc/udev/rules.d: $ajenas"
+    avisar "Reglas de udev ajenas" "En /etc/udev/rules.d: ${ajenas% }. Revíselas (¿99-powercap.rules de Mission Center?). Si son suyas, añádalas a UDEV_PERMITIDAS. $informe"
+  fi
+fi
+
+# --- Foco: con misc:focus_on_activate=false una app que pide el foco no le cambia de espacio (solo queda urgente)
+if [[ $COMPROBAR_FOCO == 1 ]]; then
+  v_foco=$(hyprctl getoption misc:focus_on_activate 2>/dev/null | awk '/bool:|int:/{print $2; exit}')
+  case $v_foco in 0) v_foco=false ;; 1) v_foco=true ;; esac
+  log "Foco al activar (Hyprland): ${v_foco:-sin respuesta} (esperado: $FOCO_ESPERADO)"
+  if [[ -n $v_foco && $v_foco != "$FOCO_ESPERADO" ]]; then
+    avisar "Hyprland: las apps pueden volver a moverle de espacio" "misc:focus_on_activate vale $v_foco (se esperaba $FOCO_ESPERADO). Revise su configuración de Hyprland. $informe"
+  fi
+fi
+
+# --- TPM: si la raíz cifrada se abre con TPM2 + PIN atado al PCR 7 y el PCR 7 o la BIOS cambian respecto a la
+#     inscripción (TPM_ESTADO_DIR/pcr y /bios, guardados al inscribir), el TPM ya no entrega la clave.
+if [[ $COMPROBAR_TPM == 1 || ( $COMPROBAR_TPM == auto && -r $TPM_ESTADO_DIR/pcr ) ]]; then
+  if [[ -r $TPM_ESTADO_DIR/pcr ]]; then
+    pcr_ahora=$(systemd-analyze pcrs 7 2>/dev/null | awk 'NR==2{print $3}'); fallos_tpm=
+    [[ -n $pcr_ahora && $pcr_ahora != "$(cat "$TPM_ESTADO_DIR/pcr")" ]] && fallos_tpm+=" el PCR 7 cambió (BIOS, dbx o Secure Boot);"
+    if [[ -r $TPM_ESTADO_DIR/bios && $(cat /sys/class/dmi/id/bios_version 2>/dev/null) != "$(cat "$TPM_ESTADO_DIR/bios")" ]]; then
+      fallos_tpm+=" la versión de la BIOS cambió;"
+    fi
+    log "TPM: ${fallos_tpm:-PCR 7 y BIOS iguales que al inscribir}"
+    [[ -n $fallos_tpm ]] && avisar "TPM: hay que volver a inscribir el PIN" "$fallos_tpm El próximo arranque pedirá la frase de paso. Vuelva a inscribir el TPM con systemd-cryptenroll. $informe"
+  else
+    log "TPM: COMPROBAR_TPM=1 pero no existe $TPM_ESTADO_DIR/pcr (guárdelo al inscribir el TPM)"
+  fi
+fi
+
+# --- AutoFirma: integración con el navegador y caducidad de los certificados personales de su almacén (solo la
+#     fecha y el emisor; nunca la clave ni el alias, que puede llevar datos personales).
+autofirma_instalado() { pacman -Qq autofirma-bin >/dev/null 2>&1 || pacman -Qq autofirma >/dev/null 2>&1; }
+if [[ $COMPROBAR_AUTOFIRMA == 1 || ( $COMPROBAR_AUTOFIRMA == auto && -x $HOME/.local/bin/estacion-autofirma-nss ) ]] && autofirma_instalado; then
+  fallos_af=$("$HOME/.local/bin/estacion-autofirma-nss" --comprobar 2>&1 | grep -E '^!!' | paste -sd' ')
+  [[ $(xdg-mime query default x-scheme-handler/afirma 2>/dev/null) == autofirma.desktop ]] || fallos_af+=" afirma:// no abre autofirma.desktop;"
+  [[ -x /usr/bin/autofirma ]] || fallos_af+=" falta /usr/bin/autofirma;"
+  if grep -q 'UseEnvironmentVariables=true' "$HOME/.local/bin/autofirma" 2>/dev/null && [[ $(command -v autofirma) == "$HOME/.local/bin/autofirma" ]]; then :
+  else fallos_af+=" la envoltura ~/.local/bin/autofirma falta, no lleva la propiedad o no va primero en el PATH;"; fi
+  log "AutoFirma: $(pacman -Q autofirma-bin 2>/dev/null || pacman -Q autofirma 2>/dev/null) · ${fallos_af:-integración correcta}"
+  [[ -n $fallos_af ]] && avisar "AutoFirma: integración con el navegador rota" "$fallos_af Ejecute estacion-autofirma-nss con el navegador cerrado. $informe"
+  ini="${XDG_CONFIG_HOME:-$HOME/.config}/estacion/afirma-profiles.ini"
+  ruta_nss=$(sed -n 's/^Path=//p' "$ini" 2>/dev/null | head -1)
+  if [[ -n $ruta_nss && -d $ruta_nss ]]; then
+    db="sql:$ruta_nss"
+    while IFS= read -r nombre_cert; do
+      fin=$(certutil -L -d "$db" -n "$nombre_cert" 2>/dev/null | sed -n 's/^ *Not After *: *//p' | head -1)
+      [[ -n $fin ]] || continue
+      dias=$(( ( $(date -d "$fin" +%s) - $(date +%s) ) / 86400 ))
+      emisor=$(certutil -L -d "$db" -n "$nombre_cert" 2>/dev/null | sed -n 's/.*Issuer: ".*O=\([^,"]*\).*/\1/p' | head -1)
+      log "Certificado personal (${emisor:-?}) caduca el $(date -d "$fin" +%F): faltan $dias días"
+      (( dias <= 30 )) && avisar "Certificado digital: caduca en $dias días" \
+        "Su certificado de ${emisor:-?} caduca el $(date -d "$fin" +%F). Renuévelo con su emisor. $informe"
+    done < <(certutil -L -d "$db" 2>/dev/null | awk '/u,u,u[ \t]*$/{sub(/[ \t]+u,u,u[ \t]*$/,""); print}')
+  fi
+fi
+
+# --- Parsec se actualiza solo: descarga parsecd-*.so a ~/.parsec (fuera de pacman). Cada semana se registran los .so
+#     y su sha256; si cambian respecto a la vez anterior, aviso con lo anterior y lo nuevo.
+if [[ $COMPROBAR_PARSEC == 1 || ( $COMPROBAR_PARSEC == auto && -d $HOME/.parsec ) ]] && [[ -d $HOME/.parsec ]]; then
+  ESTADO_PARSEC="$ESTADO/parsec-so.txt"
+  ahora_parsec=$(cd "$HOME/.parsec" && sha256sum parsecd-*.so 2>/dev/null | awk '{print $2, $1}' | sort)
+  log "Parsec (~/.parsec): ${ahora_parsec:-sin parsecd-*.so}"
+  if [[ -f $ESTADO_PARSEC ]]; then
+    antes_parsec=$(cat "$ESTADO_PARSEC")
+    if [[ $antes_parsec != "$ahora_parsec" ]]; then
+      log "AVISO: Parsec se ha actualizado solo. Antes: ${antes_parsec:-nada} · Ahora: ${ahora_parsec:-nada}"
+      avisar "Parsec se ha actualizado solo" "Antes: $(awk '{print $1}' <<<"$antes_parsec" | paste -sd' ') · Ahora: $(awk '{print $1}' <<<"$ahora_parsec" | paste -sd' '). $informe"
+    fi
+  else
+    log "Parsec: primera vez; se guarda como referencia en ${ESTADO_PARSEC/#$HOME/\~}"
+  fi
+  printf '%s\n' "$ahora_parsec" > "$ESTADO_PARSEC"
+fi
+
+# --- Versión empaquetada ---
+if [[ -z $PKGDIR || ! -r $PKGDIR/PKGBUILD ]]; then
+  log "CAELESTIA_PKG_DIR sin definir o sin PKGBUILD: se omite la comprobación de versiones."
+  exit 0
+fi
+pkgver=$(sed -n 's/^pkgver=\([0-9A-Za-z._+]*\)$/\1/p' "$PKGDIR/PKGBUILD" | head -1)
+pkgrel=$(sed -n 's/^pkgrel=\([0-9.]*\)$/\1/p' "$PKGDIR/PKGBUILD" | head -1)
+instalada=$(pacman -Q "$CAELESTIA_PKG" 2>/dev/null | cut -d' ' -f2)
+[[ -n $pkgver ]] || { log "ERROR: no se pudo leer pkgver de $PKGDIR/PKGBUILD"; exit 1; }
+
+# --- Versión publicada ---
+fuente=; ultima=; url_tarball=
+if json=$(timeout 30 gh api "repos/$REPO/releases/latest" 2>/dev/null) ||
+   json=$(curl -fsS --max-time 30 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null); then
+  ultima=$(jq -r '.tag_name // empty' <<<"$json" | sed 's/^v//')
+  url_tarball=$(jq -r --arg n "caelestia-shell-v$ultima.tar.gz" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$json" | head -1)
+  fuente="GitHub releases"
+fi
+if [[ -z $ultima ]] && json=$(curl -fsS --max-time 30 'https://aur.archlinux.org/rpc/v5/info?arg[]=caelestia-shell' 2>/dev/null); then
+  ultima=$(jq -r '.results[0].Version // empty' <<<"$json" | sed 's/-[0-9.]*$//')
+  fuente="AUR (respaldo)"
+fi
+if [[ -z $ultima ]]; then
+  log "Sin red o consulta fallida (GitHub y AUR). Empaquetada $pkgver-$pkgrel, instalada ${instalada:-ninguna}. Nada que hacer."
+  exit 0
+fi
+
+if [[ -n ${ESTACION_PRUEBA_VERSION:-} ]]; then
+  log "PRUEBA: se trata $ESTACION_PRUEBA_VERSION como versión nueva (publicada de verdad: $ultima, $fuente)"
+  ultima=$ESTACION_PRUEBA_VERSION; url_tarball=; prueba=1
+else
+  prueba=
+  if [[ $(vercmp "$ultima" "$pkgver") -le 0 ]]; then
+    log "Sin versión nueva: publicada $ultima ($fuente), empaquetada $pkgver-$pkgrel, instalada ${instalada:-ninguna}."
+    exit 0
+  fi
+fi
+[[ -n $url_tarball ]] || url_tarball="https://github.com/$REPO/releases/download/v$ultima/caelestia-shell-v$ultima.tar.gz"
+
+# --- Versión nueva: comprobación en un temporal nuevo y vacío ---
+TMP=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/estacion-comprobador.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT
+{
+  echo
+  echo "================ Versión ${prueba:+(PRUEBA) }$ultima ($fuente) — empaquetada $pkgver-$pkgrel, instalada ${instalada:-ninguna}"
+  echo "Tarball: $url_tarball"
+} >> "$LOG"
+
+if ! curl -fsSL --max-time 300 -o "$TMP/tarball.tar.gz" "$url_tarball"; then
+  log "ERROR: no se pudo descargar el tarball. Sin cambios."
+  avisar "Caelestia $ultima publicada" "No se pudo descargar el código para probar los parches. $informe"
+  exit 0
+fi
+sha=$(sha256sum "$TMP/tarball.tar.gz" | cut -d' ' -f1)
+sha_aur=$(curl -fsS --max-time 30 'https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=caelestia-shell' 2>/dev/null |
+          grep -oE "[0-9a-f]{64}" | head -1)
+echo "sha256: $sha (AUR: ${sha_aur:-no disponible}$( [[ -n $sha_aur ]] && { [[ $sha == "$sha_aur" ]] && echo ', coincide' || echo ', NO coincide: AUR aún no actualizado o tarball distinto'; } ))" >> "$LOG"
+
+mkdir "$TMP/src"
+bsdtar -xf "$TMP/tarball.tar.gz" -C "$TMP/src" || { log "ERROR: tarball ilegible"; exit 0; }
+arbol=$(find "$TMP/src" -mindepth 1 -maxdepth 1 -type d | head -1)
+
+# Parches: los del array source del PKGBUILD, en su orden. Se lee como lo haría makepkg (que también lo ejecuta),
+# en un subshell y sin root: es el PKGBUILD de su propio paquete local; no apunte CAELESTIA_PKG_DIR a uno ajeno.
+mapfile -t fuentes < <(cd "$PKGDIR" && bash -c 'source ./PKGBUILD >/dev/null 2>&1; printf "%s\n" "${source[@]}"')
+bien=(); mal=()
+for f in "${fuentes[@]}"; do
+  f=${f##*/}; [[ $f == *.patch ]] || continue
+  if out=$(cd "$arbol" && patch --dry-run -Np1 -i "$PKGDIR/$f" 2>&1); then
+    (cd "$arbol" && patch -Np1 -s -i "$PKGDIR/$f") >/dev/null 2>&1
+    bien+=("$f"); echo "  OK     $f" >> "$LOG"
+  else
+    mal+=("$f"); { echo "  FALLA  $f"; sed 's/^/           /' <<<"$out"; } >> "$LOG"
+  fi
+done
+
+# es.po: punto de inserción que usa prepare() en CMakeLists.txt (solo si el paquete lleva traducción propia)
+if [[ -r $PKGDIR/es.po ]]; then
+  if grep -q '^    # All .po files should go here$' "$arbol/plugin/src/Caelestia/I18n/CMakeLists.txt" 2>/dev/null; then
+    bien+=("es.po (CMakeLists)"); echo "  OK     es.po: punto de inserción en CMakeLists.txt" >> "$LOG"
+  else
+    mal+=("es.po (CMakeLists)"); echo "  FALLA  es.po: no está «# All .po files should go here» en CMakeLists.txt" >> "$LOG"
+  fi
+fi
+
+# Cadenas: raw.pot como scripts/trs.fish raw (mismas opciones de xgettext), msgmerge contra es.po
+traducir="sin datos"
+pot="$TMP/raw.pot"; : > "$pot"
+gen() {
+  local lang=$1; shift
+  (cd "$arbol" && xgettext -L "$lang" -o "$pot" --join-existing --from-code=UTF-8 --no-wrap --add-location=file \
+    --add-comments=TRANSLATORS: --package-name=caelestia-shell -k \
+    -ktr:1 -ktrCtx:2c,1 -ktrMarked:1 -ktrN:1,2 -ktrCtxN:4c,1,2 \
+    -kmark:1 -kmarkCtx:2c,1 -kmarkN:1,2 -kmarkCtxN:4c,1,2 "$@") 2>>"$TMP/xgettext.err"
+}
+if [[ -r $PKGDIR/es.po ]]; then
+  mapfile -d '' qml < <(cd "$arbol" && find . -path ./build -prune -o -name '*.qml' -print0)
+  mapfile -d '' cpp < <(cd "$arbol" && find . -path ./build -prune -o \( -name '*.cpp' -o -name '*.hpp' \) -print0)
+  if gen JavaScript "${qml[@]}" && gen C++ "${cpp[@]}" && [[ -s $pot ]] &&
+     # Igual que trs.fish: quitar javascript-format y marcar qt-format / qt-plural-format
+     perl -00 -i -pe '
+         s/^#, javascript-format\n//m;
+         s/, javascript-format//;
+         my @fmts;
+         push @fmts, "qt-format" if /%L?[1-9]/;
+         push @fmts, "qt-plural-format" if /%L?n/;
+         if (@fmts && !/^#,.*qt-format/m) {
+             my $fmts = join ", ", @fmts;
+             s/^#,/#, $fmts,/m or s/^(?=msgctxt |msgid )/#, $fmts\n/m
+         }
+     ' "$pot"; then
+    if msgmerge --quiet --no-wrap -o "$TMP/es.po" "$PKGDIR/es.po" "$pot" 2>>"$LOG"; then
+      stats=$(LC_ALL=C msgfmt --statistics -o /dev/null "$TMP/es.po" 2>&1)
+      echo "  Cadenas (es.po fusionado con la plantilla nueva): $stats" >> "$LOG"
+      t=$(grep -oE '[0-9]+ translated' <<<"$stats" | grep -oE '[0-9]+'); z=$(grep -oE '[0-9]+ fuzzy' <<<"$stats" | grep -oE '[0-9]+')
+      u=$(grep -oE '[0-9]+ untranslated' <<<"$stats" | grep -oE '[0-9]+')
+      traducir="$(( ${z:-0} + ${u:-0} )) por traducir (${z:-0} dudosas, ${u:-0} nuevas; ${t:-0} traducidas)"
+      msgfmt --check-format -c -o /dev/null "$TMP/es.po" 2>>"$LOG" || echo "  AVISO  msgfmt --check-format encuentra errores" >> "$LOG"
+    else
+      echo "  FALLA  msgmerge" >> "$LOG"
+    fi
+  else
+    echo "  FALLA  xgettext (ver errores abajo)" >> "$LOG"; sed 's/^/           /' "$TMP/xgettext.err" >> "$LOG"
+  fi
+fi
+echo "  Resumen: ${#bien[@]} aplican, ${#mal[@]} fallan; $traducir" >> "$LOG"
+
+titulo="Caelestia $ultima ${prueba:+(prueba) }publicada"
+if [[ ${#mal[@]} -eq 0 ]]; then
+  cuerpo="Los ${#bien[@]} parches aplican limpio. Cadenas: $traducir. Paquete instalado sin cambios."
+else
+  cuerpo="Aplican ${#bien[@]}; fallan ${#mal[@]}: ${mal[*]}. Cadenas: $traducir. Paquete instalado sin cambios."
+fi
+avisar "$titulo" "$cuerpo
+$informe"
+log "Notificado: $titulo — $cuerpo"
+exit 0

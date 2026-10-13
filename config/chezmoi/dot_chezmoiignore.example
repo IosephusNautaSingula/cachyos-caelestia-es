@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# .chezmoiignore — rutas (relativas a $HOME) que chezmoi no gestiona nunca. Copiar a la raíz del repositorio de
+# chezmoi como «.chezmoiignore». Revise la lista con «chezmoi managed» antes del primer commit.
+
+# --- Secretos y credenciales: NUNCA en el repositorio ---
+.ssh/id_*
+!.ssh/id_*.pub
+.ssh/known_hosts*
+.config/gh/hosts.yml
+.local/share/keyrings/**
+**/.env
+**/*.env
+**/*.pem
+**/*.key
+# Bóvedas y configuración de su gestor de contraseñas: añada aquí su carpeta (dentro de ~/.config)
+# Configuración de herramientas con tokens de sesión: añada aquí las suyas
+# Almacenes de certificados y firma electrónica (solo en una copia cifrada, nunca en git)
+**/cert9.db
+**/key4.db
+**/cert8.db
+**/key3.db
+**/pkcs11.txt
+**/*.p12
+**/*.pfx
+.pki/**
+.afirma/**
+.parsec/user.bin
+
+# --- Copias .bak: el historial ya lo guarda git ---
+**/*.bak
+**/*.bak.*
+**/*.bak-*
+
+# --- Cachés, estado y binarios regenerables ---
+.cache/**
+.local/share/fonts/**
+.local/share/mise/**
+**/__pycache__/**
+**/*.pyc
+**/*.log
+
+# --- Ficheros del propio repositorio (no se aplican a $HOME) ---
+README.md

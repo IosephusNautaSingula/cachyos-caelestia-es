@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Regenerar las unidades de autoarranque XDG cuando cambie ~/.config/autostart
+
+[Path]
+PathChanged=%h/.config/autostart
+
+[Install]
+WantedBy=default.target

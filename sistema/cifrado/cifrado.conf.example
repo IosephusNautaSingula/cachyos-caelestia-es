@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# cifrado.conf — datos del equipo para los scripts de «cifrado en el sitio» (LUKS2 + TPM2 + PIN, btrfs, Limine).
+#
+# Cópielo como «cifrado.conf» junto a los scripts y rellénelo con SUS valores. NO CONTIENE SECRETOS: aquí no va
+# nunca la frase, el PIN, la clave de recuperación ni ningún fichero de clave.
+#
+# La forma más sencilla de rellenarlo: en el sistema instalado (aún sin cifrar), ejecute
+#     sudo bash cifrado-inventario.sh --conf > cifrado.conf.propuesta
+# revise la propuesta línea a línea, compárela con lsblk/blkid y guárdela como cifrado.conf.
+#
+# Todos los scripts comprueban estos datos antes de tocar nada: si algo no coincide con el disco real, se paran.
+# Los valores de abajo son SOLO DE EJEMPLO (los scripts se niegan a funcionar mientras sigan los UUID de ejemplo).
+
+# ---------------------------------------------------------------- equipo
+# Nombre del equipo:            hostnamectl hostname
+EQUIPO="equipo"
+# Usuario de escritorio (el que ejecuta «sudo»):   id -un
+USUARIO="usuario"
+
+# ---------------------------------------------------------------- disco
+# Disco que contiene la raíz y /home:     lsblk -dno NAME,MODEL,SERIAL,SIZE
+DISCO="/dev/nvme0n1"
+# Número de serie y modelo (sirven para no equivocarse de disco):   lsblk -dno SERIAL,MODEL /dev/nvme0n1
+DISCO_SERIE="EJEMPLO0123456789"
+DISCO_MODELO="MODELO DE EJEMPLO"
+
+# ---------------------------------------------------------------- ESP (NO se cifra: Limine, kernels e initramfs)
+# PARTUUID y UUID de la ESP:   lsblk -no PARTUUID,UUID /dev/nvme0n1p1     (o: blkid /dev/nvme0n1p1)
+ESP_PARTUUID="11111111-2222-3333-4444-555555555501"
+ESP_UUID="1111-2222"
+# Dónde está montada la ESP en el sistema instalado:   findmnt -no TARGET -t vfat
+ESP_MONTAJE="/boot"
+# limine.conf, como ruta del sistema instalado:   ls /boot/limine.conf /boot/EFI/limine/limine.conf
+LIMINE_CONF="/boot/limine.conf"
+# Kernels instalados (nombres de paquete; limine-mkinitcpio deja su initramfs en <ESP>/<machine-id>/<kernel>/):
+#   pacman -Qq | grep -E '^linux-[a-z-]+$' | grep -v headers
+KERNELS="linux-cachyos linux-cachyos-lts"
+
+# ---------------------------------------------------------------- raíz (btrfs)
+# Partición de la raíz:   findmnt -no SOURCE /      →  p. ej. /dev/nvme0n1p2[/@]
+# PARTUUID:               lsblk -no PARTUUID /dev/nvme0n1p2
+RAIZ_PARTUUID="11111111-2222-3333-4444-555555555502"
+# Tamaño EXACTO de la partición en bytes:   lsblk -bdno SIZE /dev/nvme0n1p2
+RAIZ_BYTES="68719476736"
+# UUID del btrfs (NO cambia al cifrar; fstab sigue igual):   lsblk -no UUID /dev/nvme0n1p2
+RAIZ_BTRFS="11111111-2222-3333-4444-555555555503"
+# UUID que tendrá el contenedor LUKS (lo elige usted; genere uno nuevo con:  cat /proc/sys/kernel/random/uuid)
+RAIZ_LUKS="11111111-2222-3333-4444-555555555504"
+# Nombre del mapeo en /dev/mapper (el habitual en Arch es cryptroot)
+RAIZ_MAP="cryptroot"
+# Subvolumen montado en / y opciones de montaje:   findmnt -no OPTIONS /
+RAIZ_SUBVOL="@"
+OPCIONES_BTRFS="compress=zstd:1"
+# Otros subvolúmenes de la raíz, como «punto-de-montaje-relativo:subvolumen» (para montar el sistema en chroot):
+#   findmnt -rno TARGET,OPTIONS -t btrfs | grep -v '^/home'
+SUBVOLUMENES_RAIZ="root:@root srv:@srv var/cache:@cache var/tmp:@tmp var/log:@log"
+
+# ---------------------------------------------------------------- /home (btrfs, en su PROPIA partición)
+HOME_PARTUUID="11111111-2222-3333-4444-555555555505"
+HOME_BYTES="429496729600"
+HOME_BTRFS="11111111-2222-3333-4444-555555555506"
+HOME_LUKS="11111111-2222-3333-4444-555555555507"
+HOME_MAP="crypthome"
+
+# Fichero de clave con el que se abre /home al arrancar (vive DENTRO de la raíz cifrada; 64 bytes, 0400).
+# Lo crea cifrado-preparar.sh. Nunca se copia fuera del equipo.
+CLAVE_HOME="/etc/cryptsetup-keys.d/crypthome.key"
+
+# ---------------------------------------------------------------- parámetros del cifrado
+# Argumentos de «cryptsetup reencrypt --encrypt». --reduce-device-size deja sitio para la cabecera LUKS2 al
+# principio de la partición (el btrfs se reduce antes en REDUCIR_BTRFS, que debe ser MAYOR que ese hueco).
+CIFRADO=(--type luks2 --cipher aes-xts-plain64 --key-size 512 --hash sha256 --pbkdf argon2id --reduce-device-size 32M)
+REDUCIR_BTRFS="256M"
+# Tiempo máximo (segundos) para cifrar cada partición. Mida la velocidad con cifrado-prueba-loop.sh (apartado E)
+# y deje un margen amplio (3 veces lo estimado, como mínimo 1800).
+MAX_RAIZ="1800"
+MAX_HOME="7200"
+
+# ---------------------------------------------------------------- frase y PIN
+# La frase se teclea en la pantalla de arranque, donde el teclado puede estar en inglés: por eso se exigen palabras
+# en minúsculas de la a a la z separadas por un espacio (esas teclas no cambian de sitio entre distribuciones).
+FRASE_PALABRAS="6"
+# PIN del TPM2: longitud mínima; solo letras sin tilde ni ñ y números.
+PIN_MIN="6"
+# PCR a los que se ata el TPM2 (7 = estado de Secure Boot; no cambia con cada actualización del kernel).
+TPM_PCRS="7"
+# Dónde se guarda la referencia del PCR para comprobar más tarde si ha cambiado (sin secretos).
+DIR_TPM_REFERENCIA="/var/lib/estacion-tpm"
+
+# ---------------------------------------------------------------- USB del entorno live (p. ej. multiarranque con ventoy, exFAT)
+# Etiqueta y número de serie del USB:   lsblk -o NAME,LABEL,FSTYPE,TRAN ;  udevadm info -q property -n /dev/sdX | grep ^ID_SERIAL=
+USB_ETIQUETA="MIUSB"
+USB_SERIE="Fabricante_Modelo_0123456789AB-0:0"
+# Carpeta, dentro del USB y de la ESP (plan B), donde van los scripts:
+DIR_EN_USB="estacion-cifrado"
+# ventoy.json del USB multiarranque: debe permitir volver a montar el USB en el live (vacío si no usa ventoy)
+VENTOY_JSON="ventoy/ventoy.json"
+
+# ---------------------------------------------------------------- registros
+# Dónde dejan los scripts su registro (uno por ejecución, permisos 0600). Vacío = «registros/» junto a los scripts
+# (en el live, eso es el USB, que sobrevive a un corte de luz). Nunca se registran frases, PIN ni claves.
+DIR_REGISTROS=""
+# Directorio de trabajo de cryptsetup (deja ahí su cabecera temporal LUKS2-temp-*.new). Vacío = «trabajo/» junto a
+# los scripts. TIENE que estar fuera de las particiones que se cifran (USB o ESP).
+DIR_TRABAJO=""
+
+# ---------------------------------------------------------------- copia de seguridad (opcional pero MUY recomendada)
+# Orden que hace una copia completa ahora y orden que la comprueba (vacías = el script le pedirá que confirme a mano
+# que tiene una copia completa y comprobada). Ejemplo con estacion-copia:
+#   COPIA_AHORA=(/usr/local/bin/estacion-copia --ahora)
+#   COPIA_COMPROBAR=(/usr/local/bin/estacion-copia restic check)
+#   COPIA_RESTIC=(/usr/local/bin/estacion-copia restic)    # para quitar cabeceras viejas de las instantáneas
+COPIA_AHORA=()
+COPIA_COMPROBAR=()
+COPIA_RESTIC=()
+COPIA_CERROJO="/run/estacion-copia.lock"
+# Ficheros de exclusión de la copia en los que se añade /etc/cryptsetup-keys.d (el fichero de clave no sale del equipo)
+COPIA_EXCLUIR=("/etc/estacion/excluir.txt")
+# Copias de las cabeceras LUKS en el equipo (entran en la copia diaria; 0700)
+DIR_CABECERAS="/var/lib/estacion-copia/sistema/luks"
+
+# ---------------------------------------------------------------- destino en red (opcional: NAS por SMB)
+# Vacío COPIA_RECURSO = no se copia nada a la red. Ejemplo IP: 192.0.2.10
+COPIA_NAS="nas.local"
+COPIA_PUERTO="445"
+COPIA_RECURSO="//nas.local/copias"
+# Credenciales SMB (0600, las crea usted; NUNCA se publican)
+COPIA_CREDENCIALES="/etc/estacion/smb-credenciales"
+# Opciones de montaje CIFS
+COPIA_OPCIONES_CIFS="vers=3.1.1,seal,uid=0,gid=0,file_mode=0600,dir_mode=0700,noperm"
+# Subcarpeta del recurso donde se guardan los scripts y las cabeceras
+COPIA_SUBDIR="reconstruir/cifrado"
+
+# ---------------------------------------------------------------- instantáneas (snapper)
+# Configuraciones de snapper en las que crear «Antes del cifrado» / «Fin del cifrado» (vacío = ninguna):  snapper list-configs
+SNAPPER_CONFIGS="root home"

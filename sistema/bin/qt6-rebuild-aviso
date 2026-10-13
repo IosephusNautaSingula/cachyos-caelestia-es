@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# qt6-rebuild-aviso: aviso tras actualizar Qt6 (lo lanza /etc/pacman.d/hooks/qt6-rebuild-aviso.hook y también
+# estacion-actualizar). No recompila nada: solo imprime qué recompilar y en qué orden. Nunca falla (sale siempre con 0)
+# para no estorbar a pacman.
+# Orden: quickshell-git → qt6-m3shapes-git → paquete local de Caelestia Shell (o caelestia-shell de AUR) → qtengine.
+# Variables (/etc/estacion/estacion.conf o entorno):
+#   CAELESTIA_PKG      nombre del paquete local de la interfaz (por defecto caelestia-shell-es)
+#   CAELESTIA_PKG_DIR  directorio con su PKGBUILD (si está vacío, solo se indica que se recompile con makepkg)
+set -u
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || true
+: "${CAELESTIA_PKG:=caelestia-shell-es}" "${CAELESTIA_PKG_DIR:=}"
+
+instalado() { pacman -Qq "$1" &>/dev/null; }
+
+# Versión del paquete local leída como texto del PKGBUILD (no se ejecuta: el hook corre como root)
+version_local() {
+  local v r
+  v=$(sed -n 's/^pkgver=\([0-9A-Za-z._+]*\)$/\1/p' "$CAELESTIA_PKG_DIR/PKGBUILD" 2>/dev/null | head -1)
+  r=$(sed -n 's/^pkgrel=\([0-9.]*\)$/\1/p' "$CAELESTIA_PKG_DIR/PKGBUILD" 2>/dev/null | head -1)
+  [[ -n $v && -n $r ]] && echo "$v-$r"
+}
+
+aur_antes=(); aur_despues=(); local_shell=; shell_aur=
+for p in quickshell-git qt6-m3shapes-git; do instalado "$p" && aur_antes+=("$p"); done
+if instalado "$CAELESTIA_PKG"; then local_shell=1
+elif instalado caelestia-shell; then shell_aur=caelestia-shell
+fi
+instalado qtengine && aur_despues+=(qtengine)
+
+[[ ${#aur_antes[@]} -eq 0 && -z $local_shell && -z $shell_aur && ${#aur_despues[@]} -eq 0 ]] && exit 0
+
+r=$'\e[1;31m'; a=$'\e[1;33m'; n=$'\e[0m'; paso=0
+echo
+echo "${r}==========================================================${n}"
+echo "${r}  Qt6 se ha actualizado. Recompile en este orden, como usuario${n}"
+echo "${r}  normal (no root):${n}"
+if [[ ${#aur_antes[@]} -gt 0 ]]; then
+  paso=$((paso+1)); echo; echo "  $paso. AUR: ${aur_antes[*]}"
+  echo "${a}     paru -S --rebuild ${aur_antes[*]}${n}"
+fi
+if [[ -n $local_shell ]]; then
+  paso=$((paso+1)); echo; echo "  $paso. Paquete local $CAELESTIA_PKG"
+  ver=$(version_local)
+  if [[ -n $ver ]]; then
+    echo "${a}     cd $CAELESTIA_PKG_DIR && makepkg -sf${n}"
+    echo "${a}     sudo pacman -U $CAELESTIA_PKG_DIR/$CAELESTIA_PKG-$ver-$(uname -m).pkg.tar.zst${n}"
+  else
+    echo "${a}     (defina CAELESTIA_PKG_DIR en /etc/estacion/estacion.conf; recompílelo con makepkg -sf y pacman -U)${n}"
+  fi
+elif [[ -n $shell_aur ]]; then
+  paso=$((paso+1)); echo; echo "  $paso. AUR: $shell_aur"
+  echo "${a}     paru -S --rebuild $shell_aur${n}"
+fi
+if [[ ${#aur_despues[@]} -gt 0 ]]; then
+  paso=$((paso+1)); echo; echo "  $paso. AUR: ${aur_despues[*]}"
+  echo "${a}     paru -S --rebuild ${aur_despues[*]}${n}"
+fi
+instalado darkly-bin && { echo; echo "  Nota: darkly-bin es binario; si falla, espere a una versión nueva en AUR."; }
+echo
+echo "  Si se actualizó también el kernel, reinicie antes de recompilar."
+echo "${r}==========================================================${n}"
+echo
+exit 0

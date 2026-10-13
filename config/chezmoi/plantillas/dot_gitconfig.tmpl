@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Ejemplo de plantilla de chezmoi: git con commits firmados por SSH (la clave privada la guarda su agente SSH o
+# su gestor de contraseñas; aquí solo va la pública). En el repositorio: dot_gitconfig.tmpl → ~/.gitconfig
+[user]
+	email = {{ .correo_git | quote }}
+	signingkey = ~/.ssh/id_ed25519.pub
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	allowedSignersFile = ~/.ssh/allowed_signers
+[commit]
+	gpgsign = true
+[tag]
+	gpgsign = true
+[init]
+	defaultBranch = main

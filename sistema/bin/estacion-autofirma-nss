@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-autofirma-nss: integra AutoFirma con el almacén de certificados (NSS) de Zen o de Firefox.
+#  1. ${XDG_CONFIG_HOME:-~/.config}/estacion/afirma-profiles.ini: un profiles.ini propio con la ruta ABSOLUTA del
+#     perfil que usa el navegador (el «Default» de la sección [Install…] de su profiles.ini). La envoltura
+#     ~/.local/bin/autofirma (y la entrada autofirma.desktop) exportan AFIRMA_NSS_PROFILES_INI con esa ruta y
+#     JDK_JAVA_OPTIONS=-Des.gob.afirma.keystores.mozilla.UseEnvironmentVariables=true: así AutoFirma lee ese almacén.
+#  2. La autoridad local de AutoFirma (~/.afirma/Autofirma/AutoFirma_ROOT.cer, la crea su lanzador al abrirlo por
+#     primera vez) como de confianza SSL («C,,») en el almacén del navegador, para el websocket wss://127.0.0.1 que usa
+#     la web al invocar afirma://. Solo con el navegador CERRADO (no se escribe su almacén con la app abierta).
+# Variables: NAVEGADOR=zen|firefox (por defecto, el que tenga perfil; si los dos, zen), ZEN_DIR, FIREFOX_DIR.
+# Uso: estacion-autofirma-nss [--comprobar]   (--comprobar: no cambia nada; sale con 1 si algo no cuadra)
+# Lo relanza estacion-autofirma-nss.path cuando AutoFirma regenera su autoridad. Sale con 2 si el navegador está
+# abierto (hay que repetirlo con el navegador cerrado).
+set -u
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${XDG_CONFIG_HOME:-$HOME/.config}/estacion/estacion.conf" || true
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || true
+ZEN_DIR=${ZEN_DIR:-$HOME/.config/zen}
+if [[ -z ${FIREFOX_DIR:-} ]]; then
+  FIREFOX_DIR=$HOME/.mozilla/firefox
+  [[ -r $HOME/.config/mozilla/firefox/profiles.ini ]] && FIREFOX_DIR=$HOME/.config/mozilla/firefox
+fi
+CA="$HOME/.afirma/Autofirma/AutoFirma_ROOT.cer"; NOMBRE="AutoFirma ROOT"
+INI="${XDG_CONFIG_HOME:-$HOME/.config}/estacion/afirma-profiles.ini"
+
+perfil_de() { awk -F= '/^\[Install/{i=1} i&&/^Default=/{print $2; exit}' "$1/profiles.ini" 2>/dev/null; }
+if [[ -z ${NAVEGADOR:-} ]]; then
+  if [[ -n $(perfil_de "$ZEN_DIR") ]]; then NAVEGADOR=zen
+  elif [[ -n $(perfil_de "$FIREFOX_DIR") ]]; then NAVEGADOR=firefox
+  else echo "No encuentro perfil de Zen ($ZEN_DIR) ni de Firefox ($FIREFOX_DIR)" >&2; exit 1; fi
+fi
+case $NAVEGADOR in
+  zen)     BASE=$ZEN_DIR;     NOMBRE_NAV=Zen;     PROCESOS=(zen zen-bin) ;;
+  firefox) BASE=$FIREFOX_DIR; NOMBRE_NAV=Firefox; PROCESOS=(firefox firefox-bin) ;;
+  *) echo "NAVEGADOR debe ser zen o firefox (es «$NAVEGADOR»)" >&2; exit 1 ;;
+esac
+perfil=$(perfil_de "$BASE")
+[[ $perfil == /* ]] && RUTA=$perfil || RUTA="$BASE/$perfil"
+[[ -n $perfil && -d $RUTA ]] || { echo "No encuentro el perfil de $NOMBRE_NAV en $BASE/profiles.ini" >&2; exit 1; }
+DB="sql:$RUTA"
+# El lanzador de AUR guarda la autoridad en PEM (aunque se llame .cer): se prueba PEM y luego DER
+huella() { { openssl x509 -in "$1" -noout -fingerprint -sha256 2>/dev/null || openssl x509 -inform DER -in "$1" -noout -fingerprint -sha256 2>/dev/null; } | cut -d= -f2; }
+huella_nav() { certutil -L -d "$DB" -n "$NOMBRE" -a 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2; }
+
+if [[ ${1:-} == --comprobar ]]; then
+  mal=0
+  grep -qxF "Path=$RUTA" "$INI" 2>/dev/null || { echo "!! $INI no apunta al perfil de $NOMBRE_NAV"; mal=1; }
+  [[ -r $CA ]] || { echo "-- AutoFirma aún no ha creado su autoridad (se crea al abrirlo por primera vez)"; exit $mal; }
+  h=$(huella "$CA"); hz=$(huella_nav)
+  if [[ -n $h && $h == "$hz" ]]; then echo "OK autoridad de AutoFirma en $NOMBRE_NAV"
+  else echo "!! la autoridad de AutoFirma no está en $NOMBRE_NAV o no coincide"; mal=1; fi
+  exit $mal
+fi
+
+install -d -m 700 "${INI%/*}"
+printf '[General]\nStartWithLastProfile=1\nVersion=2\n\n[Profile0]\nName=%s\nIsRelative=0\nPath=%s\nDefault=1\n' \
+  "$NOMBRE_NAV" "$RUTA" > "$INI.tmp" && mv "$INI.tmp" "$INI"
+echo "OK $INI → perfil de $NOMBRE_NAV"
+
+[[ -r $CA ]] || { echo "-- AutoFirma aún no ha creado su autoridad: ábralo una vez y vuelva a ejecutar esto"; exit 0; }
+h=$(huella "$CA"); [[ -n $h ]] || { echo "!! no puedo leer $CA" >&2; exit 1; }
+if [[ $h == "$(huella_nav)" ]]; then echo "OK la autoridad de AutoFirma ya está en $NOMBRE_NAV"; exit 0; fi
+abierto=
+for proc in "${PROCESOS[@]}"; do pgrep -x "$proc" >/dev/null 2>&1 && abierto=1; done
+if [[ -n $abierto ]]; then
+  echo "!! $NOMBRE_NAV está abierto: ciérrelo y vuelva a ejecutar estacion-autofirma-nss (no se escribe su almacén abierto)"
+  notify-send -a "AutoFirma" -i dialog-warning "AutoFirma: falta un paso con $NOMBRE_NAV cerrado" \
+    "Cierre $NOMBRE_NAV y ejecute estacion-autofirma-nss para que la firma desde la web funcione." 2>/dev/null
+  exit 2
+fi
+certutil -d "$DB" -D -n "$NOMBRE" >/dev/null 2>&1
+certutil -d "$DB" -A -n "$NOMBRE" -t "C,," -i "$CA" && echo "OK autoridad de AutoFirma importada en $NOMBRE_NAV ($(huella "$CA" | cut -c1-23)…)"
+logger -t estacion-autofirma "autoridad de AutoFirma importada en el almacén de $NOMBRE_NAV"

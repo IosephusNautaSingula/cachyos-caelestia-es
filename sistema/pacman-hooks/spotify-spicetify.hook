@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = spotify
+
+[Action]
+Description = Restaurando las ACL de spicetify en /opt/spotify...
+When = PostTransaction
+Exec = /usr/local/bin/spotify-spicetify-acl

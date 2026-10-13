@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-copia-vigilar (usuario): avisa si la última copia correcta tiene más de COPIA_AVISO_DIAS días (por defecto 3)
+# o si aún no ha habido ninguna desde la instalación. Lo lanza estacion-copia-vigilar.timer cada día.
+set -u
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${XDG_CONFIG_HOME:-$HOME/.config}/estacion/estacion.conf" || true
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || true
+: "${COPIA_AVISO_DIAS:=3}"
+f=/var/lib/estacion-copia/ultima-correcta; inst=/var/lib/estacion-copia/instalado
+[[ -r $inst ]] || exit 0                                  # copias aún sin instalar: nada que vigilar
+ahora=$(date +%s); ref=$(cat "$f" 2>/dev/null || cat "$inst")
+dias=$(( (ahora - ref) / 86400 ))
+(( dias < COPIA_AVISO_DIAS )) && exit 0
+cuando=$([[ -r $f ]] && date -d @"$ref" '+%F %H:%M' || echo "ninguna todavía")
+notify-send -u critical -a "Copias" -i dialog-warning -h string:x-caelestia-log:journal:estacion-copia.service \
+  "Hace $dias días sin copia de seguridad" \
+  "Última copia correcta: $cuando. ¿Está encendido el NAS y el equipo enchufado a la hora de la copia? journalctl -u estacion-copia"
+logger -t estacion-copia "AVISO: $dias días sin copia correcta (última: $cuando)"

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: mantenimiento del repositorio de copias (forget --prune y check)
+After=network-online.target
+Wants=network-online.target
+ConditionACPower=true
+OnFailure=estacion-copia-aviso@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/estacion-copia mantener
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=12h

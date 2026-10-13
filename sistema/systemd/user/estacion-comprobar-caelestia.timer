@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: comprobación semanal de versiones de caelestia-shell
+
+[Timer]
+OnCalendar=Thu *-*-* 12:00:00
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

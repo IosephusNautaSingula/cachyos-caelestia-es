@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Exclusiones de estacion-copia (restic --exclude-file). Cópielo a /etc/estacion/excluir.txt (lo hace instalar.sh si
+# no existe) y adáptelo. Rutas tal como se ven en la copia (/home y /etc); «*» vale para un nivel de directorio.
+
+# Secretos de la propia copia (no tiene sentido guardarlos dentro de ella)
+/etc/estacion/restic-clave
+/etc/estacion/smb-credenciales
+# Ficheros de clave de discos cifrados: no salen del equipo
+/etc/cryptsetup-keys.d
+
+# Cachés y papelera
+/home/*/.cache
+/home/*/.local/share/Trash
+/home/*/.config/Code/CachedExtensionVSIXs
+/home/*/.config/Code/CachedData
+/home/*/.config/Code/Cache
+/home/*/.config/Code/GPUCache
+/home/*/.config/Code/CachedProfilesData
+/home/*/.config/Code/logs
+#/home/*/.vscode/extensions
+
+# Ejemplos por aplicación (descomente los de las que use)
+# Herramientas y datos regenerables
+#/home/*/.local/share/mise
+#/home/*/.local/share/pnpm
+#/home/*/.local/state/spicetify
+
+# Mensajería: cachés dentro de las carpetas de datos (las sesiones y ajustes SÍ entran)
+#/home/*/.local/share/TelegramDesktop/tdata/user_data*
+#/home/*/.local/share/TelegramDesktop/tdata/emoji
+#/home/*/.local/share/TelegramDesktop/tdata/audio_cache
+#/home/*/.local/share/TelegramDesktop/tdata/dumps
+
+# Parsec: el programa real lo descarga y actualiza él mismo en ~/.parsec y se rehace solo
+#/home/*/.parsec/parsecd-*.so
+#/home/*/.parsec/appdata.json
+#/home/*/.parsec/log.txt
+
+# Compilaciones (se rehacen con makepkg)
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
+/home/*/pkg/*/src
+/home/*/pkg/*/pkg
+
+# Artefactos de desarrollo
+node_modules
+__pycache__

@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: aviso de fallo de %i en la sesión del usuario
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/estacion-copia-aviso %i

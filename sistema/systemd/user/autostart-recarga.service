@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=systemctl --user daemon-reload (ejecuta el generador de autoarranque XDG)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user daemon-reload

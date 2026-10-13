@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Nunca entran en el repositorio: configuraciones reales, registros, sumas y trabajos locales
+sistema/cifrado/cifrado.conf
+sistema/cifrado/SHA256SUMS
+sistema/cifrado/registros/
+sistema/cifrado/trabajo/
+estacion.conf
+*.log
+*.bak
+*.bak.*

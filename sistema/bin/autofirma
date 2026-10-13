@@ -1,0 +1,9 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Envoltura de AutoFirma (se instala en ~/.local/bin, que debe ir antes que /usr/bin en el PATH): usa el almacén de
+# certificados del navegador que prepara estacion-autofirma-nss. AFIRMA_NSS_PROFILES_INI apunta a su profiles.ini y
+# la propiedad es.gob.afirma.keystores.mozilla.UseEnvironmentVariables=true hace que AutoFirma la lea (sin ella la
+# ignora).
+export AFIRMA_NSS_PROFILES_INI="${XDG_CONFIG_HOME:-$HOME/.config}/estacion/afirma-profiles.ini"
+export JDK_JAVA_OPTIONS="-Des.gob.afirma.keystores.mozilla.UseEnvironmentVariables=true${JDK_JAVA_OPTIONS:+ $JDK_JAVA_OPTIONS}"
+exec /usr/bin/autofirma "$@"

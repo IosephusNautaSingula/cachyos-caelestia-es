@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# AutoFirma con el almacén de certificados NSS de Zen o Firefox (ver guias/autofirma-nss-firefox-zen.md).
+# Copia de /usr/share/applications/autofirma.desktop que exporta AFIRMA_NSS_PROFILES_INI (lo genera
+# estacion-autofirma-nss) y la propiedad UseEnvironmentVariables=true, sin la cual AutoFirma ignora la variable.
+# Ruta: ~/.local/share/applications/autofirma.desktop (tiene prioridad sobre el del sistema).
+[Desktop Entry]
+Type=Application
+Name=AutoFirma
+Comment=Cliente @firma
+Icon=autofirma
+Exec=sh -c 'AFIRMA_NSS_PROFILES_INI="${XDG_CONFIG_HOME:-$HOME/.config}/estacion/afirma-profiles.ini" JDK_JAVA_OPTIONS=-Des.gob.afirma.keystores.mozilla.UseEnvironmentVariables=true exec autofirma "$@"' autofirma %U
+Categories=Utility;Java;
+StartupNotify=true
+StartupWMClass=autofirma
+MimeType=x-scheme-handler/afirma;

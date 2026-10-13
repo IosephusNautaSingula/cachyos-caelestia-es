@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: comprobar si hay versión nueva de caelestia-shell (paquete local parcheado)
+# En el gestor de usuario network-online.target no espera a nada; la espera real es nm-online
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Espera hasta 2 min a tener red; si no la hay, el script lo anota y sale sin avisar
+ExecStartPre=-/usr/bin/nm-online -q -t 120
+ExecStart=%h/.local/bin/estacion-comprobar-caelestia
+Nice=10
+IOSchedulingClass=idle

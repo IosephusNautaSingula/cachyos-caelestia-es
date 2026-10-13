@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: aviso semanal de que toca actualizar (no actualiza nada)
+
+[Service]
+Type=oneshot
+ExecStartPre=-/usr/bin/nm-online -q -t 120
+# Solo cuenta y notifica; checkupdates usa una copia temporal de las bases de datos y no toca el sistema
+ExecStart=/usr/bin/bash -c 'n=$(checkupdates 2>/dev/null | wc -l); a=$(paru -Qua 2>/dev/null | wc -l); notify-send -a "Mantenimiento" -i system-software-update "Toca actualizar" "$n paquetes de los repositorios y $a de AUR con versión nueva. En una terminal: estacion-actualizar"'
+Nice=10

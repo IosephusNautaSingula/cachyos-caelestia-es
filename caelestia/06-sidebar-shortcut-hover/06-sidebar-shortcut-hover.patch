@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+diff -u a/modules/drawers/Interactions.qml b/modules/drawers/Interactions.qml
+--- a/modules/drawers/Interactions.qml
++++ b/modules/drawers/Interactions.qml
+@@ -22,6 +22,8 @@
+     property bool dashboardShortcutActive
+     property bool osdShortcutActive
+     property bool utilitiesShortcutActive
++    property bool sidebarShortcutActive
++    property bool sidebarPointerOpening
+ 
+     function withinPanelHeight(panel: Item, x: real, y: real): bool {
+         const panelY = root.borderThickness + panel.y;
+@@ -86,7 +88,7 @@
+             if (Config.bar.showOnHover)
+                 bar.isHovered = false;
+ 
+-            if (Config.sidebar.showOnHover)
++            if (Config.sidebar.showOnHover && !sidebarShortcutActive)
+                 screenState.sidebar = false;
+         }
+     }
+@@ -137,8 +139,10 @@
+             if (Config.sidebar.showOnHover) {
+                 const sidebarTriggerY = Math.max(Config.sidebar.minHoverThreshold, panels.notifications.y + panels.notifications.height + borderThickness);
+                 const showSidebarHover = x > Math.min(width - Config.border.minThickness, bar.implicitWidth + panels.sidebar.x) && y <= sidebarTriggerY;
+-                if (showSidebarHover && !screenState.sidebar)
++                if (showSidebarHover && !screenState.sidebar) {
++                    sidebarPointerOpening = true;
+                     screenState.sidebar = true;
++                }
+             }
+ 
+             // Show/hide session on drag
+@@ -149,10 +153,13 @@
+                     screenState.session = false;
+ 
+                 // Show sidebar on drag if in session area and session is nearly fully visible
+-                if (showSidebar && panels.session.offsetScale <= 0 && dragX < -Config.sidebar.dragThreshold)
++                if (showSidebar && panels.session.offsetScale <= 0 && dragX < -Config.sidebar.dragThreshold) {
++                    sidebarPointerOpening = true;
+                     screenState.sidebar = true;
++                }
+             } else if (showSidebar && dragX < -Config.sidebar.dragThreshold) {
+                 // Show sidebar on drag if not in session area
++                sidebarPointerOpening = true;
+                 screenState.sidebar = true;
+             }
+         } else {
+@@ -183,10 +190,13 @@
+                 const sidebarTriggerY = Math.max(Config.sidebar.minHoverThreshold, panels.notifications.y + panels.notifications.height + borderThickness);
+                 const showSidebarHover = x > Math.min(width - Config.border.minThickness, bar.implicitWidth + panels.sidebar.x) && y <= sidebarTriggerY;
+                 if (showSidebarHover && !screenState.sidebar) {
++                    sidebarPointerOpening = true;
+                     screenState.sidebar = true;
+                 } else {
+                     const inSidebarArea = inRightPanel(panels.sidebar, x, y) || inRightPanel(panels.sessionWrapper, x, y);
+-                    if (!inSidebarArea)
++                    if (inSidebarArea)
++                        sidebarShortcutActive = false; // Like the OSD: once the pointer enters, it switches to hover control
++                    else if (!sidebarShortcutActive)
+                         screenState.sidebar = false;
+                 }
+             }
+@@ -295,6 +305,12 @@
+             }
+         }
+ 
++        function onSidebarChanged() {
++            // Opened by a shortcut (not by the pointer): leaving with the pointer must not close it, like the OSD and dashboard
++            root.sidebarShortcutActive = root.screenState.sidebar && !root.sidebarPointerOpening;
++            root.sidebarPointerOpening = false;
++        }
++
+         function onUtilitiesChanged() {
+             if (root.screenState.utilities) {
+                 // Utilities became visible, immediately check if this should be shortcut mode

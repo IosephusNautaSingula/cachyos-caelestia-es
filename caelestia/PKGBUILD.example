@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# caelestia-shell with the Spanish translation and the fixes in this directory, applied as patches in prepare().
+# Based on the AUR caelestia-shell PKGBUILD: same official tarball and checksum.
+#
+# Usage: copy this file as PKGBUILD into an empty build directory together with every NN-*/NN-*.patch file and run
+# `makepkg -si` (review the PKGBUILD first; never use --noconfirm). To go back to the official package, install
+# caelestia-shell again.
+#
+# The patches applied are those listed in _apply. 03, 05 and 08 are optional aesthetic customisations: uncomment them
+# if you want them. Every patch applies on its own on v2.5.0, and all of them together in numeric order.
+
+pkgname='caelestia-shell-es'
+_upstream='caelestia-shell'
+pkgver=2.5.0
+pkgrel=1
+pkgdesc='The desktop shell for the Caelestia dotfiles (Spanish translation and locale/usability fixes)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/caelestia-dots/shell'
+license=('GPL-3.0-only')
+depends=(
+    'caelestia-cli'
+    'quickshell-git'
+    'glibc'
+    'gcc-libs'
+
+    # Brightness
+    'ddcutil'
+    'brightnessctl'
+
+    # Services
+    'libcava'
+    'networkmanager'
+    'lm_sensors'
+    'aubio'
+    'libpipewire'
+    'libqalculate'
+    'power-profiles-daemon'
+
+    # Fonts
+    'ttf-material-symbols-variable'
+    'ttf-rubik-vf'
+    'ttf-cascadia-code-nerd'
+
+    # Qt modules
+    'qt6-base'
+    'qt6-declarative'
+    'qt6-imageformats'
+    'qt6-m3shapes-git'
+
+    # Extra functionality
+    'swappy'
+    'fish'
+    'bash'
+)
+optdepends=(
+    'asdbctl: controlling the brightness of Apple Studio Displays'
+    'fprintd: fingerprint unlock for the lock screen'
+    'howdy-next: face unlock for the lock screen'
+)
+makedepends=('cmake' 'ninja' 'qt6-shadertools' 'gettext')
+provides=("${_upstream}=${pkgver}")
+conflicts=("${_upstream}" "${_upstream}-git")
+_pkg="${_upstream}-v${pkgver}"
+
+# Patches applied in prepare(), in this order
+_apply=(
+    '01-i18n-es.patch'                    # feat(i18n): add Spanish (es) translation
+    '02-time-locale.patch'                # fix(services): respect the system locale in Time.format
+    # '03-battery-tank-colours.patch'     # optional: battery tank colours
+    '04-weather-locale.patch'             # fix(weather): locale-aware date and number formatting
+    # '05-bar-osd-colours.patch'          # optional: bar status capsule, power button and OSD colours
+    '06-sidebar-shortcut-hover.patch'     # fix(drawers): sidebar opened by shortcut with showOnHover
+    '07-keep-awake-overrides-idle.patch'  # fix(idle): "Keep awake" disables every idle timeout
+    # '08-accent-colours.patch'           # optional: primary/neutral accents instead of secondary
+    '09-decimal-separator.patch'          # fix(i18n): locale decimal separator for sizes and speeds
+    '10-notification-click-to-app.patch'  # feat(notifs): clicking a notification takes you to its app
+    '11-urgent-workspace.patch'           # feat(bar): highlight workspaces with an urgent window
+)
+
+source=("${url}/releases/download/v${pkgver}/${_pkg}.tar.gz"
+        '01-i18n-es.patch'
+        '02-time-locale.patch'
+        '03-battery-tank-colours.patch'
+        '04-weather-locale.patch'
+        '05-bar-osd-colours.patch'
+        '06-sidebar-shortcut-hover.patch'
+        '07-keep-awake-overrides-idle.patch'
+        '08-accent-colours.patch'
+        '09-decimal-separator.patch'
+        '10-notification-click-to-app.patch'
+        '11-urgent-workspace.patch')
+sha256sums=('6bef9feff9f9c6afeb6fdf0b9bb1cfc3cfd7dff4c2a020e8079d6720975f3b6a'
+            '60653692c6ede32bd09582a683f39057ee651dd8c9372181ca3faff70604d00f'
+            '177cccf6b069aecc9b0a39e164ebc482a65abb3bcfc302339e9f5bd59309951a'
+            'a4d93e87d2adddfbdd2c4cfecc42fbac6f80d48e94601498f4b59818bfb85ff4'
+            'a2b44ddd0e3018bbb5597dd8c21bb50ee72ac644ddee3dc247c185541d8f6358'
+            'd2e8f59943543f3aad9f215d12a6c74a572b73ce9446db43b572d536b3b49755'
+            '5df45c3eb367ecaee9b0fa9473ded46ab7258f98083ad7c76da6b717ebfd0c33'
+            'fe97c77eb18b0f02a066e4a08e19233ccdda4e628451eccc47267b5ffb41e3a3'
+            'a5cd0286b32e0451c72d3f4cf97ef28089a6dd530588972e4c9bdcba66e9d509'
+            'a2a92ed3c07e8bdb2c803362eb5cc6af566307c7cef3ab4ba4201bed83836813'
+            '64ea1ef5dadab6b5d0cdb75a05210470e6493f3c3024d5b82e08fe8c3c13e6be'
+            '7ee1045a23e4e90cb6f95518d4e490a7ac59ffbd1eaf271b9963ea6e2a06bd2a')
+
+prepare() {
+    cd "${srcdir}/${_pkg}"
+
+    local p
+    for p in "${_apply[@]}"; do
+        echo "Applying ${p}"
+        # -F0: no fuzz, a patch that does not apply exactly makes the build fail
+        patch -Np1 -F0 -i "${srcdir}/${p}"
+    done
+}
+
+build() {
+    cd "${srcdir}/${_pkg}"
+
+    cmake -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_INSTALL_PREFIX=/ \
+        -DVERSION=$pkgver \
+        -DGIT_REVISION="$(cat REVISION)" \
+        -DDISTRIBUTOR="local build (package: ${pkgname})"
+    cmake --build build
+}
+
+check() {
+    cd "${srcdir}/${_pkg}"
+
+    # The Spanish catalog must be valid and compiled (only if 01 is applied)
+    if [[ -f plugin/src/Caelestia/I18n/trs/es.po ]]; then
+        msgfmt --check-format -c -o /dev/null plugin/src/Caelestia/I18n/trs/es.po
+        find build -name 'es.mo' | grep -q .
+    fi
+}
+
+package() {
+    cd "${srcdir}/${_pkg}"
+
+    DESTDIR="$pkgdir" cmake --install build
+    install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}

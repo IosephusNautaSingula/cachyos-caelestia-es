@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Gancho de git: revisa con gitleaks lo que va a entrar en el commit y lo detiene si encuentra secretos.
+# Instalación (en el repositorio de chezmoi):  install -m 755 pre-commit-gitleaks "$(chezmoi source-path)/.git/hooks/pre-commit"
+set -euo pipefail
+if command -v gitleaks >/dev/null; then g=(gitleaks); elif command -v mise >/dev/null; then g=(mise exec gitleaks -- gitleaks)
+else echo "pre-commit: gitleaks no está instalado; commit detenido" >&2; exit 1; fi
+"${g[@]}" git --staged --no-banner --redact .

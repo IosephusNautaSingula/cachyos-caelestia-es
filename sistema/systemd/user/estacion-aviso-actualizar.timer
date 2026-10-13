@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: aviso semanal para actualizar (viernes por la tarde)
+
+[Timer]
+OnCalendar=Fri *-*-* 17:00:00
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

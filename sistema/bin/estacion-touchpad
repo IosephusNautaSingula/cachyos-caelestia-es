@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-touchpad: si falta el touchpad I2C-HID cuyo ACPI HID es TOUCHPAD_HID (p. ej. ELAN06FA en algunos portátiles
+# Lenovo), reinicia su controlador I2C y reintenta.
+# Red de seguridad para un fallo conocido en algunos equipos: la primera lectura del touchpad al arrancar o al volver
+# de suspensión falla («controller timed out», -110) y reiniciar el controlador lo arregla.
+# La dirección PCI del controlador NO es fija: se calcula en cada ejecución siguiendo sysfs desde el dispositivo
+# i2c-${TOUCHPAD_HID}:00 hasta su primer antecesor PCI (o, si ese dispositivo no existe, desde el nodo ACPI del touchpad
+# hasta el «physical_node» de su controlador).
+# Lo lanzan estacion-touchpad.service al arrancar y /usr/lib/systemd/system-sleep/estacion-touchpad al volver de
+# suspensión (con systemd-run). Registro: journalctl -t estacion-touchpad
+# Uso: estacion-touchpad [--esperar SEGUNDOS] [--diagnostico]
+#   --esperar: espera a que aparezca solo antes de actuar (por defecto 15)
+#   --diagnostico: solo muestra lo detectado (HID, dispositivo I2C, controlador PCI y su driver); no cambia nada
+set -u
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || exit 1
+: "${TOUCHPAD_HID:=}"
+ESPERA=15; DIAG=
+while (( $# )); do
+  case $1 in
+    --esperar) ESPERA=${2:-15}; shift ;;
+    --diagnostico) DIAG=1 ;;
+    *) echo "uso: ${0##*/} [--esperar SEGUNDOS] [--diagnostico]" >&2; exit 2 ;;
+  esac
+  shift
+done
+log() { logger -t estacion-touchpad "$*"; echo "estacion-touchpad: $*"; }
+
+[[ -n $TOUCHPAD_HID ]] || { echo "estacion-touchpad: TOUCHPAD_HID sin definir en /etc/estacion/estacion.conf"; exit 0; }
+compgen -G "/sys/bus/acpi/devices/${TOUCHPAD_HID}:*" >/dev/null || { echo "estacion-touchpad: no hay dispositivo ACPI $TOUCHPAD_HID: nada que hacer"; exit 0; }
+TP="i2c-${TOUCHPAD_HID}:00"
+
+# Primer antecesor PCI de un camino de sysfs (imprime su dirección, p. ej. 0000:00:15.0)
+antecesor_pci() {
+  local d
+  d=$(readlink -f "$1") || return 1
+  while [[ $d == /sys/devices/* ]]; do
+    if [[ -L $d/subsystem && $(readlink -f "$d/subsystem") == */bus/pci ]]; then echo "${d##*/}"; return 0; fi
+    d=${d%/*}
+  done
+  return 1
+}
+controlador_pci() {
+  local acpi
+  [[ -e /sys/bus/i2c/devices/$TP ]] && antecesor_pci "/sys/bus/i2c/devices/$TP" && return 0
+  # Sin dispositivo I2C: el padre ACPI del touchpad es el controlador; su physical_node apunta al dispositivo PCI
+  for acpi in /sys/bus/acpi/devices/"${TOUCHPAD_HID}":*; do
+    acpi=$(readlink -f "$acpi")
+    [[ -e ${acpi%/*}/physical_node ]] && antecesor_pci "${acpi%/*}/physical_node" && return 0
+  done
+  return 1
+}
+# Presente = el dispositivo I2C tiene driver y un dispositivo HID con entrada (input) debajo
+hay() { [[ -e /sys/bus/i2c/devices/$TP/driver ]] && compgen -G "/sys/bus/i2c/devices/$TP/*/input/input*" >/dev/null; }
+
+PCI=$(controlador_pci) || PCI=
+DRV=; [[ -n $PCI && -L /sys/bus/pci/devices/$PCI/driver ]] && DRV=$(basename "$(readlink -f "/sys/bus/pci/devices/$PCI/driver")")
+
+if [[ -n $DIAG ]]; then
+  echo "HID ACPI:            $TOUCHPAD_HID"
+  echo "Dispositivo I2C:     $TP ($([[ -e /sys/bus/i2c/devices/$TP ]] && echo existe || echo no existe))"
+  echo "Driver I2C-HID:      $([[ -e /sys/bus/i2c/devices/$TP/driver ]] && basename "$(readlink -f "/sys/bus/i2c/devices/$TP/driver")" || echo ninguno)"
+  echo "Controlador PCI:     ${PCI:-no encontrado}"
+  echo "Driver del PCI:      ${DRV:-ninguno}"
+  echo "Touchpad presente:   $(hay && echo sí || echo no)"
+  exit 0
+fi
+
+i=0
+while (( i < ESPERA )); do
+  if hay; then (( i > 0 )) && log "touchpad presente (apareció solo a los ${i} s)"; exit 0; fi
+  sleep 1; i=$((i + 1))
+done
+hay && exit 0
+[[ -n $PCI ]] || { log "falta el touchpad y no se encuentra su controlador PCI en sysfs: no se puede reiniciar"; exit 1; }
+[[ -n $DRV ]] || DRV=intel-lpss
+log "falta el touchpad tras ${ESPERA} s: se reinicia el controlador I2C $PCI (driver $DRV)"
+for intento in 1 2 3 4 5; do
+  [[ -e /sys/bus/pci/drivers/$DRV/$PCI ]] && echo "$PCI" > "/sys/bus/pci/drivers/$DRV/unbind"
+  sleep 2; echo "$PCI" > "/sys/bus/pci/drivers/$DRV/bind" 2>/dev/null; sleep 5
+  if [[ ! -e /sys/bus/i2c/devices/$TP/driver ]]; then
+    echo "$TP" > /sys/bus/i2c/drivers/i2c_hid_acpi/bind 2>/dev/null; sleep 3
+  fi
+  hay && { log "touchpad recuperado en el intento $intento"; exit 0; }
+  log "intento $intento sin éxito"
+done
+log "NO se pudo recuperar el touchpad tras 5 intentos"; exit 1

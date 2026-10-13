@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# /etc/estacion/estacion.conf — configuración de Estación que depende del equipo (0644, de root, SIN secretos).
+# Formato: VARIABLE="valor" (una por línea). Los scripts lo leen como texto, sin ejecutarlo, y las variables de
+# entorno tienen prioridad. Los scripts de usuario leen antes ~/.config/estacion/estacion.conf, si existe.
+# Los valores de este ejemplo son ficticios (rangos de documentación): cámbielos por los suyos.
+
+# --- General ----------------------------------------------------------------------------------------------------
+ESTACION_USUARIO="usuario"                      # usuario de escritorio (avisos de copia, ACL de spicetify, grupo energia)
+
+# --- Copia de seguridad (componente «copia») --------------------------------------------------------------------
+COPIA_MODO="smb"                                # smb (monta un recurso SMB) | directo (repositorio restic tal cual)
+COPIA_NAS="nas.local"                           # nombre o IP del NAS (ejemplo IP: 192.0.2.10); vacío = no comprobar
+COPIA_PUERTO="445"                              # puerto que se comprueba antes de copiar (445 SMB, 22 SFTP…)
+COPIA_RECURSO="//nas.local/copias"              # recurso SMB (solo en modo smb)
+COPIA_PUNTO_MONTAJE="/mnt/estacion-nas"
+COPIA_REPOSITORIO="/mnt/estacion-nas/restic"    # en modo directo: ruta local, sftp:usuario@host:/ruta, rest:https://…
+COPIA_CREDENCIALES="/etc/estacion/smb-credenciales"   # 0600, la crea usted; NUNCA se publica
+COPIA_CLAVE_RESTIC="/etc/estacion/restic-clave"       # 0600, la crea usted; NUNCA se publica
+COPIA_EXCLUIR="/etc/estacion/excluir.txt"       # exclusiones de restic (ejemplo: excluir.txt.example)
+COPIA_SNAPPER_HOME="home"                       # configuración de snapper de /home (vacío = copiar /home en vivo)
+COPIA_RETENCION="--keep-daily 7 --keep-weekly 4 --keep-monthly 12"
+COPIA_AVISO_DIAS="3"                            # avisar si la última copia correcta tiene más de N días
+
+# --- Red de casa (componente «red») -----------------------------------------------------------------------------
+CASA_CONEXION_UUID="11111111-2222-3333-4444-555555555555"   # nmcli -g UUID connection show
+CASA_ROUTER_MAC="00:00:5e:00:53:01"             # ip neigh show $(ip -4 route show default | awk '{print $3}')
+CASA_RED="192.168.0.0/24"
+CASA_PUERTOS="57621/tcp 57621/udp"              # puertos que se abren desde CASA_RED (Spotify Connect)
+
+# --- Hardware (componente «touchpad») ---------------------------------------------------------------------------
+TOUCHPAD_HID="ELAN06FA"                         # ACPI HID del touchpad: ls /sys/bus/acpi/devices/ | grep -i elan
+
+# --- Bluetooth (componente «bluetooth») -------------------------------------------------------------------------
+BT_ADAPTADOR="hci0"
+BT_INTENTOS="3"
+BT_ESPERA="5"
+
+# --- Avisos y paquetes locales (componentes «avisos» y «escritorio») --------------------------------------------
+CAELESTIA_PKG="caelestia-shell-es"        # nombre del paquete local parcheado de Caelestia Shell
+CAELESTIA_PKG_DIR=""                            # directorio con su PKGBUILD (p. ej. /home/usuario/pkg/caelestia-shell-es)
+PKG_LOCALES_DIR=""                              # directorio con sus paquetes locales (uno por subdirectorio)
+SPOTIFY_DIR="/opt/spotify"
+
+# --- Escritorio --------------------------------------------------------------------------------------------------
+NAVEGADOR=""                                    # zen | firefox para AutoFirma (vacío = el que tenga perfil)
+AJUSTE_BACKLIGHT=""                             # pantalla de /sys/class/backlight (vacío = la primera)
+COMPROBAR_UDEV="1"                              # comprobaciones semanales de estacion-comprobar-caelestia:
+UDEV_PERMITIDAS=""                              #   reglas de udev propias que no deben avisar (nombres separados por espacios)
+COMPROBAR_FOCO="0"                              #   1 | 0
+FOCO_ESPERADO="false"
+COMPROBAR_TPM="auto"                            #   auto | 1 | 0
+TPM_ESTADO_DIR="/var/lib/estacion-tpm"
+COMPROBAR_PARSEC="auto"                         #   auto | 1 | 0
+COMPROBAR_AUTOFIRMA="auto"                      #   auto | 1 | 0

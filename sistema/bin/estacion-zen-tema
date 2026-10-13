@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-zen-tema: genera chrome/userChrome.css del perfil de Zen con los colores del esquema de Caelestia
+# (${XDG_STATE_HOME:-~/.local/state}/caelestia/scheme.json).
+# Motivo: en algunas versiones de Zen la interfaz (barra lateral, botones) no recoge el tema dinámico de CaelestiaFox;
+# aquí los colores van escritos directamente. Base: el userChrome.css de los dots de Caelestia (bloques de color
+# activados, desenfoque desactivado) + añadido de Estación (pestaña activa en secondaryContainer con texto
+# onSecondaryContainer; pestañas de fondo en onSurface al 75 %). Lo relanza estacion-zen-tema.path al cambiar el
+# esquema; Zen lo aplica al reiniciarse.
+# Variables: ZEN_DIR (directorio de perfiles de Zen; por defecto ~/.config/zen).
+set -euo pipefail
+ZEN_DIR=${ZEN_DIR:-$HOME/.config/zen}
+ESQ="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia/scheme.json"
+BASE="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia/dots/zen/userChrome.css"
+PERFIL=$(awk -F= '/^\[Install/{i=1} i&&/^Default=/{print $2; exit}' "$ZEN_DIR/profiles.ini" 2>/dev/null || true)
+[[ -r $ESQ && -r $BASE && -n $PERFIL ]] || { echo "falta $ESQ, $BASE o el perfil de Zen" >&2; exit 1; }
+[[ $PERFIL == /* ]] && DEST="$PERFIL/chrome/userChrome.css" || DEST="$ZEN_DIR/$PERFIL/chrome/userChrome.css"
+
+c() { jq -r --arg k "$1" '"#" + .colours[$k]' "$ESQ"; }
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+{
+  # Bloques de color de los dots activados (sin los de desenfoque, que siguen comentados)
+  python3 -I - "$BASE" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+for inicio in ("/*:root {", "/*tooltip {", "/*#permissions-granted-icon {"):
+    if inicio not in s:
+        continue
+    i = s.index(inicio); j = s.index("}*/", i)
+    s = s[:i] + s[i+2:j+1] + s[j+3:]
+print(s)
+PY
+  cat <<CSS
+
+/* ===== Estación: colores del esquema «$(jq -r .name "$ESQ")» escritos directamente (generado por
+   estacion-zen-tema el $(date '+%F %T'); NO editar a mano: se regenera al cambiar el esquema). ===== */
+:root {
+    --c-accent: $(c primary) !important;
+    --c-text: $(c onSurface) !important;
+    --c-mantle: $(c surfaceContainerHigh) !important;
+    --c-base: $(c surface) !important;
+    --c-surface0: $(c surfaceContainer) !important;
+    --c-surface1: $(c outlineVariant) !important;
+    --estacion-sel-bg: $(c secondaryContainer);
+    --estacion-sel-fg: $(c onSecondaryContainer);
+    --toolbar-color: $(c onSurface) !important;
+    --toolbarbutton-icon-fill: $(c primary) !important;
+    --tab-selected-textcolor: $(c onSecondaryContainer) !important;
+    --zen-colors-primary: $(c primary) !important;
+    --zen-primary-color: $(c primary) !important;
+    --toolbarbutton-icon-fill-attention: $(c primary) !important;
+    --focus-outline-color: $(c primary) !important;
+}
+/* Pestaña activa en secondaryContainer con su texto, como la píldora del panel */
+.tabbrowser-tab[selected] .tab-background,
+.tabbrowser-tab[multiselected] .tab-background {
+    background-color: var(--estacion-sel-bg) !important;
+}
+.tabbrowser-tab[selected] .tab-label,
+.tabbrowser-tab[selected] .tab-close-button,
+.tabbrowser-tab[selected] .tab-icon-image {
+    color: var(--estacion-sel-fg) !important;
+    fill: var(--estacion-sel-fg) !important;
+}
+/* Pestañas de fondo: texto al 75 % */
+.tabbrowser-tab:not([selected]) .tab-label {
+    color: color-mix(in srgb, $(c onSurface) 75%, transparent) !important;
+}
+CSS
+} > "$tmp"
+install -D -m 0644 "$tmp" "$DEST"
+echo "userChrome.css de Zen regenerado con el esquema $(jq -r .name "$ESQ") → $DEST (se aplica al reiniciar Zen)"

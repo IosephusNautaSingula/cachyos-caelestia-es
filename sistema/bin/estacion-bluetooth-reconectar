@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-bluetooth-reconectar (usuario): al encenderse el Bluetooth (Adapter1.Powered → true) conecta UNA vez los
+# dispositivos emparejados y de confianza que no estén conectados (p. ej. unos auriculares). Sin bucle periódico: si
+# los desconecta a mano, no los reconecta hasta el siguiente encendido. No toca el encendido (eso es de
+# estacion-bluetooth-recordar). Sin root (bluetoothctl/busctl/gdbus).
+# Variables (entorno, ~/.config/estacion/estacion.conf o /etc/estacion/estacion.conf):
+#   BT_ADAPTADOR (hci0) · BT_INTENTOS (3) · BT_ESPERA (5 s entre intentos)
+set -u
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${XDG_CONFIG_HOME:-$HOME/.config}/estacion/estacion.conf" || true
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || true
+: "${BT_ADAPTADOR:=hci0}" "${BT_INTENTOS:=3}" "${BT_ESPERA:=5}"
+ADAPTADOR=/org/bluez/$BT_ADAPTADOR
+prop() { busctl --system get-property org.bluez "$1" "$2" "$3" 2>/dev/null | awk '{print $2}'; }
+conectar() {
+  local d mac i
+  for d in $(busctl --system tree org.bluez --list 2>/dev/null | grep -E "^$ADAPTADOR/dev_[0-9A-F_]+$"); do
+    [[ $(prop "$d" org.bluez.Device1 Paired) == true && $(prop "$d" org.bluez.Device1 Trusted) == true ]] || continue
+    mac=${d##*/dev_}; mac=${mac//_/:}
+    for i in $(seq "$BT_INTENTOS"); do
+      [[ $(prop "$d" org.bluez.Device1 Connected) == true ]] && break
+      [[ $(prop "$ADAPTADOR" org.bluez.Adapter1 Powered) == true ]] || return 0   # lo apagaron mientras tanto
+      # En el registro no se escribe la dirección del dispositivo
+      timeout 15 bluetoothctl connect "$mac" >/dev/null 2>&1 && { logger -t estacion-bluetooth "dispositivo de confianza reconectado"; break; }
+      sleep "$BT_ESPERA"
+    done
+  done
+}
+# Al iniciar la sesión, si ya está encendido, también lo intenta una vez
+[[ $(prop "$ADAPTADOR" org.bluez.Adapter1 Powered) == true ]] && conectar
+# Luego, en cada encendido.
+# stdbuf -oL: con la salida en una tubería, gdbus guarda las líneas en un búfer y la señal llegaría tarde (o nunca)
+stdbuf -oL gdbus monitor --system --dest org.bluez --object-path "$ADAPTADOR" | while read -r linea; do
+  [[ $linea == *"org.bluez.Adapter1"* && $linea == *"'Powered': <true>"* ]] && conectar
+done

@@ -1,0 +1,25 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-cerrar-sesion: cierra la sesión devolviendo siempre al gestor de inicio de sesión (SDDM), sin
+# login1 Session.Terminate (que mata también a sddm-helper).
+
+# 1. Fundido a negro (capa overlay de Quickshell; se cierra sola a los 4 s).
+#    Si qs no existe o no arranca, se sigue con el cierre sin esperar.
+FUNDIDO="${XDG_DATA_HOME:-$HOME/.local/share}/estacion/fundido-salida"
+if [ -f "$FUNDIDO/shell.qml" ] && command -v qs >/dev/null 2>&1; then
+    qs -p "$FUNDIDO" >/dev/null 2>&1 &
+    pid=$!
+    sleep 0.1
+    if kill -0 "$pid" 2>/dev/null; then
+        sleep 0.35   # el fundido dura 400 ms
+    fi
+fi
+
+# 2. Cierre de la sesión.
+if uwsm check is-active >/dev/null 2>&1; then
+    # Sesión UWSM: la parada se lanza fuera del cgroup que se va a detener.
+    exec /usr/bin/systemd-run --user --collect --quiet /usr/bin/uwsm stop
+else
+    # Sesión sin UWSM: hyprctl entrega la orden por IPC y termina antes de que Hyprland se cierre.
+    exec /usr/bin/hyprctl dispatch 'hl.dsp.exit()'
+fi

@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# EJEMPLO (no lo instala instalar.sh): permite a un usuario cambiar el color de las carpetas de Papirus sin contraseña
+# (lo usan algunos esquemas de color que llaman a papirus-folders al cambiar de tema).
+# Para usarlo, cambie «usuario» por su usuario y créelo SIEMPRE con visudo (comprueba la sintaxis):
+#   sudo visudo -f /etc/sudoers.d/estacion-papirus-folders
+# Debe quedar con permisos 0440 y de root. Concede SOLO esa orden; no añada comodines.
+#
+# usuario ALL=(root) NOPASSWD: /usr/bin/papirus-folders

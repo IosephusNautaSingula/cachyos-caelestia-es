@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Plantilla de configuración de chezmoi: pregunta los datos del equipo la primera vez («chezmoi init») y los guarda
+# en ~/.config/chezmoi/chezmoi.toml (fuera del repositorio). Copiar a la raíz del repositorio como «.chezmoi.toml.tmpl».
+# Uso en una plantilla (fichero acabado en .tmpl):  {{ .navegador }}  {{ .distribucion_teclado }}
+{{- $navegador := promptStringOnce . "navegador" "Navegador (zen-browser, firefox…)" "zen-browser" }}
+{{- $teclado := promptStringOnce . "distribucion_teclado" "Distribución de teclado de Hyprland" "es" }}
+{{- $correo := promptStringOnce . "correo_git" "Correo para los commits de git" }}
+
+[data]
+    navegador = {{ $navegador | quote }}
+    distribucion_teclado = {{ $teclado | quote }}
+    correo_git = {{ $correo | quote }}
+
+[diff]
+    exclude = ["scripts"]

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Telegram al iniciar sesión, minimizado en la bandeja (no active además el arranque propio de Telegram).
+# Ruta: ~/.config/autostart/telegram-bandeja.desktop
+[Desktop Entry]
+Type=Application
+Name=Telegram (bandeja)
+Exec=Telegram -startintray
+Icon=org.telegram.desktop
+Terminal=false
+X-GNOME-Autostart-enabled=true

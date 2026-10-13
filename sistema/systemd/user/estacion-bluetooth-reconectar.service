@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: reconectar dispositivos Bluetooth de confianza al encender el adaptador
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/estacion-bluetooth-reconectar
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target

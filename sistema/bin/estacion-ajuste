@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-ajuste: volumen, micrófono y brillo con aceleración al mantener pulsada la tecla (Hyprland repite el atajo).
+# Uso: estacion-ajuste {volumen|micro|brillo} {subir|bajar}
+#      Compatibilidad: llamado como «estacion-volumen» acepta subir|bajar|subir-micro|bajar-micro.
+# Aceleración por TIEMPO, no por número de repeticiones (en algunos equipos las teclas de brillo llegan del «Video Bus»
+# de ACPI como pulsaciones sueltas a ≈5/s tras ≈410 ms; las de volumen, del teclado, repetidas por Hyprland a 35/s
+# tras 250 ms). Una serie sigue si la pulsación anterior del mismo control y sentido llegó hace menos de UMBRAL_US.
+# Cada pulsación aplica lo que falte para la curva objetivo (en % desde el inicio de la serie): 1 al pulsar; 35 %/s
+# desde 250 ms; 70 %/s desde 936 ms (25 %); 175 %/s desde 1793 ms (85 %): de 0 a 100 en ≈1,88 s con cualquier ritmo
+# de repetición. Mínimo 1 % por pulsación.
+# Volumen y micrófono: wpctl, sin pasar de 100 % (sin sobreamplificación); quita el silencio en la primera pulsación.
+# Brillo: valor absoluto por el IPC de Caelestia (brightness set N%), para que su OSD y su valor interno lo reflejen;
+# si Caelestia no responde, brightnessctl. Nunca baja de AJUSTE_MIN_BRILLO %. Pantalla: AJUSTE_BACKLIGHT (nombre en
+# /sys/class/backlight; por defecto, la primera). Estado en $XDG_RUNTIME_DIR/estacion-ajuste-<control>.
+# Pruebas: ESTACION_AJUSTE_LOG=fichero añade «µs repetición paso» por pulsación.
+set -u
+UMBRAL_US=500000   # > primera repetición del firmware (≈410 ms) y de Hyprland (250 ms)
+MIN_BRILLO=${AJUSTE_MIN_BRILLO:-1}
+
+if [[ ${0##*/} == estacion-volumen ]]; then          # interfaz corta
+  case ${1:-} in
+    subir|bajar)             set -- volumen "$1" ;;
+    subir-micro|bajar-micro) set -- micro "${1%-micro}" ;;
+  esac
+fi
+ctl=${1:-}; dir=${2:-}
+case $ctl in volumen|micro|brillo) ;; *) echo "uso: ${0##*/} {volumen|micro|brillo} {subir|bajar}" >&2; exit 2 ;; esac
+case $dir in subir|bajar) ;; *) echo "uso: ${0##*/} {volumen|micro|brillo} {subir|bajar}" >&2; exit 2 ;; esac
+
+ahora=${EPOCHREALTIME//[.,]/}; ahora=$((10#$ahora))   # microsegundos (con locale es puede llevar coma)
+estado="${XDG_RUNTIME_DIR:-/tmp}/estacion-ajuste-$ctl"
+ult=0; n=0; ult_dir=; inicio=0; aplicado=0
+[[ -r $estado ]] && read -r ult n ult_dir inicio aplicado < "$estado"
+if [[ $ult_dir == "$dir" ]] && (( ahora - ult < UMBRAL_US )); then n=$((n + 1)); else n=0; inicio=$ahora; aplicado=0; fi
+t=$(( ahora - inicio ))                                   # µs desde el inicio de la serie
+if   (( t <  250000 )); then f=100                       # f = objetivo acumulado en centésimas de %
+elif (( t <  936000 )); then f=$(( 100 + (t - 250000) * 35 / 10000 ))
+elif (( t < 1793000 )); then f=$(( 2501 + (t - 936000) * 70 / 10000 ))
+else                         f=$(( 8500 + (t - 1793000) * 175 / 10000 )); fi
+paso=$(( f / 100 - aplicado )); (( paso < 1 )) && paso=1; (( paso > 100 )) && paso=100
+aplicado=$(( aplicado + paso ))
+printf '%s %s %s %s %s\n' "$ahora" "$n" "$dir" "$inicio" "$aplicado" > "$estado"
+[[ $dir == subir ]] && signo=+ || signo=-
+[[ -n ${ESTACION_AJUSTE_LOG:-} ]] && printf '%s %s %s\n' "$ahora" "$n" "$paso" >> "$ESTACION_AJUSTE_LOG"
+
+case $ctl in
+  volumen|micro)
+    [[ $ctl == volumen ]] && disp=@DEFAULT_AUDIO_SINK@ || disp=@DEFAULT_AUDIO_SOURCE@
+    # Quitar el silencio solo en la primera pulsación de cada serie: en las repeticiones, un segundo wpctl duplicaría
+    # el tiempo de la llamada.
+    (( n == 0 )) && wpctl set-mute "$disp" 0
+    wpctl set-volume -l 1.0 "$disp" "${paso}%${signo}"
+    ;;
+  brillo)
+    b=
+    [[ -n ${AJUSTE_BACKLIGHT:-} ]] && b=/sys/class/backlight/$AJUSTE_BACKLIGHT
+    [[ -n $b && -r $b/brightness ]] || b=$(ls -d /sys/class/backlight/* 2>/dev/null | head -1)
+    [[ -n $b && -r $b/brightness ]] || { echo "${0##*/}: no hay pantalla con brillo ajustable" >&2; exit 1; }
+    read -r actual < "$b/brightness"; read -r maximo < "$b/max_brightness"
+    pct=$(( (actual * 100 + maximo / 2) / maximo ))
+    [[ $dir == subir ]] && obj=$(( pct + paso )) || obj=$(( pct - paso ))
+    (( obj > 100 )) && obj=100; (( obj < MIN_BRILLO )) && obj=$MIN_BRILLO
+    # Un único valor absoluto: varios brightnessctl relativos en paralelo pueden terminar desordenados y dejar el
+    # hardware en otro valor que el OSD.
+    if (( obj != pct )); then
+      qs -c caelestia ipc call brightness set "${obj}%" >/dev/null 2>&1 || brightnessctl -q -d "${b##*/}" set "${obj}%"
+    fi
+    ;;
+esac
+exit 0

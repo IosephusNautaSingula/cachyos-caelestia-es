@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Dispatcher de NetworkManager (root): abre en ufw lo imprescindible para casa SOLO cuando el equipo está en la red de
+# casa: conexión guardada CASA_CONEXION_UUID activa Y puerta de enlace con la MAC CASA_ROUTER_MAC. Fuera de casa,
+# aunque la red use el mismo rango, no entra nada.
+# Reglas de casa: los puertos de CASA_PUERTOS (por defecto Spotify Connect, 57621 tcp/udp) desde CASA_RED.
+# mDNS ya lo permite ufw de serie. Configuración: /etc/estacion/estacion.conf.
+set -u
+# Lee VAR=valor sin ejecutar nada; el fichero debe ser de root y no escribible por otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 1
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 ]] || (( 8#$v & 8#022 )); then logger -t estacion-cortafuegos "$f no es de root o es escribible por otros: se ignora"; return 1; fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+
+case ${2:-} in up|down|dhcp4-change|connectivity-change|vpn-up|vpn-down) ;; *) exit 0 ;; esac
+leer_conf /etc/estacion/estacion.conf || exit 0
+: "${CASA_CONEXION_UUID:=}" "${CASA_ROUTER_MAC:=}" "${CASA_RED:=}" "${CASA_PUERTOS:=57621/tcp 57621/udp}"
+[[ -n $CASA_CONEXION_UUID && -n $CASA_ROUTER_MAC && -n $CASA_RED ]] || exit 0
+command -v ufw >/dev/null || exit 0
+ETIQUETA=estacion-casa
+
+en_casa() {
+  nmcli -t -f UUID connection show --active | grep -qxF "$CASA_CONEXION_UUID" || return 1
+  local gw; gw=$(ip -4 route show default | awk '{print $3; exit}')
+  [[ -n $gw ]] && ip neigh show "$gw" | grep -qiF "lladdr $CASA_ROUTER_MAC"
+}
+reglas_puestas() { ufw status | grep -q "$ETIQUETA"; }
+
+if en_casa; then
+  if ! reglas_puestas; then
+    for p in $CASA_PUERTOS; do
+      ufw allow from "$CASA_RED" to any port "${p%/*}" proto "${p#*/}" comment "$ETIQUETA" >/dev/null
+    done
+    logger -t estacion-cortafuegos "En casa: reglas de casa activadas ($CASA_PUERTOS desde la red de casa)"
+  fi
+else
+  if reglas_puestas; then
+    # Borrado por especificación de la regla (no por número): ufw no pide confirmación y no hace falta --force
+    for p in $CASA_PUERTOS; do
+      ufw delete allow from "$CASA_RED" to any port "${p%/*}" proto "${p#*/}" >/dev/null
+    done
+    logger -t estacion-cortafuegos "Fuera de casa: reglas de casa retiradas (no entra nada)"
+  fi
+fi
+exit 0

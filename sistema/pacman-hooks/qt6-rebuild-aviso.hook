@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Trigger]
+Operation = Upgrade
+Type = Package
+Target = qt6-base
+Target = qt6-declarative
+Target = qt6-wayland
+Target = qt6-shadertools
+Target = qt6-svg
+Target = qt6-imageformats
+Target = qt6-5compat
+
+[Action]
+Description = Comprobando paquetes AUR que dependen de Qt6...
+When = PostTransaction
+Exec = /usr/local/bin/qt6-rebuild-aviso

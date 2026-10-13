@@ -1,0 +1,61 @@
+{
+    "appearance": {
+        "transparency": {
+            "enabled": true
+        }
+    },
+    "general": {
+        "idle": {
+            "lockBeforeSleep": true,
+            "inhibitWhenAudio": false,
+            "timeouts": [
+                {
+                    "timeout": 600,
+                    "idleAction": "lock",
+                    "respectInhibitors": false
+                },
+                {
+                    "timeout": 660,
+                    "idleAction": "dpms off",
+                    "returnAction": "dpms on",
+                    "inhibitWhenAudio": true
+                },
+                {
+                    "timeout": 1800,
+                    "idleAction": [
+                        "suspend"
+                    ],
+                    "inhibitWhenAudio": true
+                }
+            ]
+        }
+    },
+    "lock": {
+        "recolourLogo": true,
+        "useWallpaper": true
+    },
+    "services": {
+        "audioIncrement": 0.01,
+        "brightnessIncrement": 0.01,
+        "dataUnits": "Decimal",
+        "visualiserBars": 120,
+        "weatherUnits": "Celsius"
+    },
+    "border": {
+        "thickness": 2,
+        "rounding": 0
+    },
+    "session": {
+        "commands": {
+            "logout": [
+                "estacion-cerrar-sesion"
+            ]
+        }
+    },
+    "osd": {
+        "enableMicrophone": true
+    },
+    "sidebar": {
+        "showOnHover": true
+    }
+}

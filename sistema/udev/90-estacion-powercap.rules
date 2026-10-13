@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Contadores de energía RAPL (energy_uj) legibles solo por root y el grupo «energia» (p. ej. Mission Center los usa
+# para «Consumo de energía»). Sustituye a reglas que los dejan legibles por todos (canal lateral PLATYPUS,
+# CVE-2020-8694). GROUP/MODE de udev no se aplican a atributos de /sys: por eso chgrp/chmod.
+SUBSYSTEM=="powercap", KERNEL=="intel-rapl*", RUN+="/usr/bin/chgrp energia /sys%p/energy_uj", RUN+="/usr/bin/chmod 0440 /sys%p/energy_uj"

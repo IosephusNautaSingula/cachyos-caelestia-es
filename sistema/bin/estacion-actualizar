@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-actualizar: actualización semanal guiada (la lanza usted en una terminal; nunca se ejecuta sola).
+#  1. Noticias de Arch (paru -Pw) y de CachyOS (https://cachyos.org/rss.xml) desde la última vez; si hay alguna,
+#     pide confirmación (con aviso reforzado si menciona intervención manual).
+#  2. Avisa de .pacnew/.pacsave pendientes.
+#  3. paru -Syu (sin confirmación automática: paru y pacman preguntan, decide usted).
+#  4. Después: .pacnew nuevos, servicios fallidos (sistema y usuario), aviso de Qt6 y si hace falta
+#     reiniciar o volver a iniciar sesión.
+#  5. Al final, destacado: checkrebuild (paquetes de AUR o locales enlazados contra una versión que ya no está, p. ej.
+#     tras actualizar Python o una biblioteca), con la orden exacta para recompilarlos.
+# Registro: ${XDG_STATE_HOME:-~/.local/state}/estacion/actualizacion-AAAA-MM-DD.log
+# Variables: PKG_LOCALES_DIR = directorio con sus paquetes locales (un subdirectorio con PKGBUILD por paquete); los
+# que salgan en checkrebuild se indican con makepkg en vez de paru.
+# Uso: estacion-actualizar [--prueba]   (--prueba: noticias y comprobaciones, sin actualizar ni marcar noticias)
+set -uo pipefail
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${XDG_CONFIG_HOME:-$HOME/.config}/estacion/estacion.conf" || true
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || true
+: "${PKG_LOCALES_DIR:=}"
+
+PRUEBA=; [[ ${1:-} == --prueba ]] && PRUEBA=1
+ESTADO="${XDG_STATE_HOME:-$HOME/.local/state}/estacion"; VISTAS="$ESTADO/cachyos-noticias-vistas"
+LOG="$ESTADO/actualizacion-$(date +%F).log"
+mkdir -p "$ESTADO"
+r=$'\e[1;31m'; a=$'\e[1;33m'; v=$'\e[1;32m'; n=$'\e[0m'
+sin_color() { sed 's/\x1b\][^\x07\x1b]*\(\x07\|\x1b\\\)//g; s/\x1b\[[0-9;?]*[A-Za-z]//g; s/\r//g'; }
+log() { printf '%s\n' "$*" | tee >(sin_color >> "$LOG"); }
+titulo() { log ""; log "${a}== $* ==${n}"; }
+preguntar() { local resp; read -r -p "$1 [s/N] " resp; [[ $resp =~ ^[sS]$ ]]; }
+
+log "#### $(date '+%F %T') estacion-actualizar ${PRUEBA:+(PRUEBA: sin actualizar)}"
+
+# ---------------------------------------------------------------- 1. Noticias
+titulo "Noticias de Arch Linux"
+hay_noticias=; manual=
+if noticias_arch=$(paru -Pw 2>/dev/null); then
+  log "$noticias_arch"; hay_noticias=1
+  grep -qiE 'manual intervention|intervention|requires? (manual|user)' <<<"$noticias_arch" && manual=1
+else
+  log "  Sin noticias nuevas desde la última actualización."
+fi
+
+titulo "Noticias de CachyOS"
+ultima=$(cat "$VISTAS" 2>/dev/null || echo 0); nueva_marca=$ultima
+if rss=$(curl -fsSL --max-time 20 https://cachyos.org/rss.xml 2>/dev/null); then
+  mapfile -t items < <(python3 -I -c '
+import sys, email.utils, xml.etree.ElementTree as E
+for i in E.fromstring(sys.stdin.read()).iter("item"):
+    t = int(email.utils.parsedate_to_datetime(i.findtext("pubDate")).timestamp())
+    tit, url = i.findtext("title"), i.findtext("link")
+    print(t, tit, url, sep="\t")' <<<"$rss" 2>/dev/null | sort -rn)
+  nuevas=0
+  for it in "${items[@]}"; do
+    IFS=$'\t' read -r t tit url <<<"$it"
+    if (( t > ultima )); then
+      nuevas=$((nuevas+1)); log "  $(date -d @"$t" +%F)  $tit"; log "              $url"
+      (( t > nueva_marca )) && nueva_marca=$t
+    fi
+  done
+  if (( nuevas == 0 )); then log "  Sin noticias nuevas."; else hay_noticias=1
+    [[ $ultima == 0 ]] && log "  (Primera ejecución: se listan todas las del canal.)"; fi
+else
+  log "  ${r}No se pudo leer el canal de CachyOS (sin red o caído).${n} Revise https://cachyos.org/blog/ a mano."
+fi
+
+if [[ -n $hay_noticias && -z $PRUEBA ]]; then
+  [[ -n $manual ]] && log "${r}ATENCIÓN: alguna noticia de Arch habla de INTERVENCIÓN MANUAL. Léala antes de seguir.${n}"
+  if ! preguntar "¿Ha leído las noticias y quiere continuar con la actualización?"; then
+    log "Actualización cancelada por el usuario."; exit 0
+  fi
+fi
+
+# ---------------------------------------------------------------- 2. .pacnew antes
+titulo ".pacnew / .pacsave pendientes (antes)"
+pend=$(pacdiff -o 2>/dev/null)
+if [[ -n $pend ]]; then log "$pend"; log "  ${a}Revíselos con: sudo DIFFPROG='diff -u' pacdiff${n}"; else log "  Ninguno."; fi
+
+# ---------------------------------------------------------------- 3. Actualizar
+inicio=$(date +%Y-%m-%dT%H:%M:%S)
+if [[ -z $PRUEBA ]]; then
+  titulo "Actualizando con paru -Syu (confirme usted cada paso)"
+  tmp=$(mktemp); script -q -e -c "paru -Syu" "$tmp"; rc=$?
+  sin_color < "$tmp" >> "$LOG"; rm -f "$tmp"
+  log "  paru terminó con código $rc"
+  [[ -n $hay_noticias && $nueva_marca != "$ultima" ]] && echo "$nueva_marca" > "$VISTAS"
+else
+  titulo "PRUEBA: se omite paru -Syu"
+  log "  Paquetes con actualización disponible (checkupdates, sin tocar el sistema):"
+  cu=$(checkupdates 2>/dev/null); log "${cu:-  ninguno}" ; log "  AUR: $(paru -Qua 2>/dev/null | wc -l) con versión nueva"
+fi
+
+# ---------------------------------------------------------------- 4. Después
+titulo "Paquetes cambiados en esta sesión"
+cambios=$(awk -v t="[$inicio" '$0 >= t && /\[ALPM\] (upgraded|installed|removed|downgraded)/ {print $3, $4, $5, $6, $7}' /var/log/pacman.log)
+log "${cambios:-  ninguno}"
+
+titulo ".pacnew / .pacsave (después)"
+pend=$(pacdiff -o 2>/dev/null); log "${pend:-  Ninguno.}"
+
+titulo "Servicios fallidos"
+fs=$(systemctl --failed --no-legend --plain 2>/dev/null); fu=$(systemctl --user --failed --no-legend --plain 2>/dev/null)
+log "  sistema: ${fs:-ninguno}"; log "  usuario: ${fu:-ninguno}"
+
+titulo "Avisos"
+if grep -qE '^upgraded qt6-(base|declarative|wayland|shadertools|svg|imageformats|5compat) ' <<<"$cambios" && [[ -x /usr/local/bin/qt6-rebuild-aviso ]]; then
+  log "${r}Qt6 actualizado:${n}"; /usr/local/bin/qt6-rebuild-aviso | tee >(sin_color >> "$LOG")
+fi
+reiniciar=; sesion=
+[[ -d /usr/lib/modules/$(uname -r) ]] || reiniciar="el kernel en uso ($(uname -r)) ya no está instalado"
+patron_reinicio='linux[^ ]*|intel-ucode|amd-ucode|systemd|glibc|mesa|nvidia[^ ]*|btrfs-progs|limine'
+grep -qE "^upgraded ($patron_reinicio) " <<<"$cambios" && \
+  reiniciar=${reiniciar:-"se actualizaron $(grep -oE "^upgraded ($patron_reinicio) " <<<"$cambios" | awk '{print $2}' | sort -u | tr '\n' ' ')"}
+grep -qE '^upgraded (hyprland|quickshell-git|caelestia-[^ ]*|qt6-[^ ]*|pipewire|wireplumber|xdg-desktop-portal[^ ]*) ' <<<"$cambios" && sesion=1
+if [[ -n $reiniciar ]]; then log "${r}REINICIE el equipo:${n} $reiniciar."
+elif [[ -n $sesion ]]; then log "${a}Cierre y vuelva a abrir la sesión${n} (Hyprland, Qt o la interfaz se han actualizado)."
+else log "${v}No hace falta reiniciar.${n}"; fi
+
+# ---------------------------------------------------------------- 5. Recompilar
+titulo "Paquetes a recompilar (checkrebuild)"
+cr=$(checkrebuild 2>/dev/null)
+if [[ -z $cr ]]; then log "${v}  Ninguno.${n}"
+else
+  log "${r}HAY PAQUETES QUE RECOMPILAR${n} (siguen instalados, pero pueden fallar al arrancar hasta recompilarlos):"
+  log "$(sed 's/^/    /' <<<"$cr")"
+  # Paquete local = algún PKGBUILD de PKG_LOCALES_DIR lo declara en pkgname
+  dir_local() {
+    local f
+    [[ -n $PKG_LOCALES_DIR ]] || return 1
+    for f in "$PKG_LOCALES_DIR"/*/PKGBUILD; do
+      [[ -r $f ]] || continue
+      grep -qE "^pkgname=(\(.*)?['\"]?$1['\"]?([ )].*)?$" "$f" && { echo "${f%/PKGBUILD}"; return 0; }
+    done
+    return 1
+  }
+  aur=(); repo=()
+  while read -r origen p; do
+    [[ -z $p ]] && continue
+    if d=$(dir_local "$p"); then
+      log "  ${a}Local $p:${n} cd $d && makepkg -sf && sudo pacman -U \"\$(ls -t ./*.pkg.tar.zst | head -1)\""
+    elif [[ $origen == foreign ]]; then aur+=("$p")
+    else repo+=("$p"); fi
+  done <<<"$cr"
+  (( ${#aur[@]} )) && log "  ${a}AUR (orden exacta):${n} paru -S --rebuild ${aur[*]}"
+  (( ${#repo[@]} )) && log "  ${a}De repositorio (${repo[*]}):${n} no se recompilan a mano; espere a la recompilación oficial y vuelva a actualizar."
+fi
+
+log ""; log "Registro: ${LOG/#$HOME/\~}"

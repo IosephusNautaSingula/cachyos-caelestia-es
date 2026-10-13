@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# spicetify con el tema de Caelestia y el Marketplace. Ruta: ~/.config/spicetify/config-xpui.ini
+# Solo se muestran las claves cambiadas; el resto lo genera «spicetify config». Sustituya USUARIO.
+[Setting]
+spotify_path           = /opt/spotify/
+prefs_path             = /home/USUARIO/.config/spotify/prefs
+current_theme          = caelestia
+color_scheme           = caelestia
+inject_theme_js        = 1
+inject_css             = 1
+replace_colors         = 1
+
+[Preprocesses]
+disable_sentry     = 1
+disable_ui_logging = 1
+expose_apis        = 1
+
+[AdditionalOptions]
+custom_apps = marketplace

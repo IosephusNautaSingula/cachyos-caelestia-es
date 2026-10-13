@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# spotify-spicetify-acl: concede SOLO al usuario de spicetify escritura en SPOTIFY_DIR (/opt/spotify) y en su
+# subdirectorio Apps mediante ACL (mínimo privilegio: sin abrir permisos a todos, sin grupos nuevos, sin cambiar propietario
+# ni modos). Lo lanza el hook de pacman spotify-spicetify.hook tras cada instalación o actualización de spotify.
+# Variables (/etc/estacion/estacion.conf o entorno): SPICETIFY_USUARIO (por defecto ESTACION_USUARIO), SPOTIFY_DIR.
+set -euo pipefail
+# Lee VAR=valor de un fichero de configuración sin ejecutarlo; no pisa variables ya definidas (manda el entorno).
+# Solo acepta ficheros de root o del propio usuario que no puedan escribir otros.
+leer_conf() {
+  local f=$1 linea k v
+  [[ -r $f ]] || return 0
+  read -r k v < <(stat -c '%u %a' "$f")
+  if [[ $k != 0 && $k != "$EUID" ]] || (( 8#$v & 8#022 )); then
+    echo "${0##*/}: $f no es de root ni suyo, o lo pueden escribir otros: se ignora" >&2; return 1
+  fi
+  while IFS= read -r linea || [[ -n $linea ]]; do
+    [[ $linea =~ ^[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case $v in
+      \"*) v=${v#\"}; v=${v%%\"*} ;;
+      \'*) v=${v#\'}; v=${v%%\'*} ;;
+      *)   v=${v%%[[:space:]#]*} ;;
+    esac
+    [[ -v $k ]] || printf -v "$k" '%s' "$v"
+  done < "$f"
+}
+leer_conf "${ESTACION_CONF:-/etc/estacion/estacion.conf}" || exit 0
+: "${ESTACION_USUARIO:=}" "${SPOTIFY_DIR:=/opt/spotify}"
+USUARIO=${SPICETIFY_USUARIO:-$ESTACION_USUARIO}
+[[ -d $SPOTIFY_DIR/Apps ]] || exit 0
+if [[ -z $USUARIO ]] || ! id "$USUARIO" >/dev/null 2>&1; then
+  echo "  spotify-spicetify-acl: defina ESTACION_USUARIO en /etc/estacion/estacion.conf; no se cambia nada."; exit 0
+fi
+setfacl -m "u:${USUARIO}:rwx" "$SPOTIFY_DIR"                       # solo el directorio, no recursivo
+setfacl -R -m "u:${USUARIO}:rwX" "$SPOTIFY_DIR/Apps"               # Apps y su contenido
+setfacl -R -d -m "u:${USUARIO}:rwX" "$SPOTIFY_DIR/Apps"            # lo que se cree después hereda la ACL
+echo
+echo "  spotify-spicetify-acl: ACL de escritura para ${USUARIO} aplicadas en $SPOTIFY_DIR y $SPOTIFY_DIR/Apps."
+echo "  Spotify se ha instalado o actualizado: vuelva a aplicar spicetify COMO USUARIO (no root):"
+echo "      spicetify backup apply"
+echo

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Estación: mantenimiento semanal del repositorio de copias (miércoles 21:30)
+
+[Timer]
+OnCalendar=Wed *-*-* 21:30:00
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

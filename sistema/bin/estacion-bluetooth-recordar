@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# estacion-bluetooth-recordar: recuerda el estado del Bluetooth (encendido/apagado) entre reinicios.
+# BlueZ no guarda «Powered»: al arrancar enciende o no según AutoEnable (/etc/bluetooth/main.conf). Esta unidad guarda
+# el estado al pararse (apagado del equipo o reinicio de bluetooth.service) y lo restaura al arrancar. Sin estado
+# guardado: encendido. Se recomienda AutoEnable=false en main.conf (vea el README).
+# Uso: estacion-bluetooth-recordar restaurar|guardar
+set -u
+DIR=/var/lib/estacion-bluetooth; F=$DIR/estado
+# Lee el estado consumiendo toda la salida (awk sin «exit»: evita cortar la tubería a bluetoothctl)
+powered() { bluetoothctl show 2>/dev/null | awk '/Powered:/{p=$2} END{print p}'; }
+# Espera a que el adaptador exista Y responda (que «show» ya dé Powered), hasta 15 s
+esperar() { local i p; for i in $(seq 30); do p=$(powered); [[ $p == yes || $p == no ]] && return 0; sleep 0.5; done; return 1; }
+# power on|off con reintentos y comprobación (el adaptador puede rechazar órdenes justo al arrancar)
+poner() {
+  local quiero=$1 esperado i; [[ $quiero == on ]] && esperado=yes || esperado=no
+  for i in 1 2 3 4 5; do bluetoothctl power "$quiero" >/dev/null 2>&1; sleep 1; [[ $(powered) == "$esperado" ]] && return 0; done
+  return 1
+}
+case ${1:-} in
+  guardar)
+    esperar || exit 0
+    p=$(powered)
+    [[ $p == yes || $p == no ]] || exit 0
+    install -d -m 0755 "$DIR"; echo "$p" > "$F"
+    logger -t estacion-bluetooth "estado guardado: $([[ $p == yes ]] && echo encendido || echo apagado)" ;;
+  restaurar)
+    esperar || { logger -t estacion-bluetooth "sin adaptador Bluetooth; nada que restaurar"; exit 0; }
+    e=$(cat "$F" 2>/dev/null || echo yes)
+    if [[ $e == no ]]; then poner off; else poner on; fi \
+      && logger -t estacion-bluetooth "estado restaurado: $([[ $e == no ]] && echo apagado || echo encendido)" \
+      || logger -t estacion-bluetooth "NO se pudo restaurar el estado ($e) tras 5 intentos" ;;
+  *) echo "uso: ${0##*/} restaurar|guardar" >&2; exit 2 ;;
+esac

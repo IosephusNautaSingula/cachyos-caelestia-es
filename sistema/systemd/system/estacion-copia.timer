@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Cambie la hora con «systemctl edit estacion-copia.timer» (OnCalendar=) en vez de editar este fichero.
+[Unit]
+Description=Estación: copia de seguridad diaria (20:30)
+
+[Timer]
+OnCalendar=*-*-* 20:30:00
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

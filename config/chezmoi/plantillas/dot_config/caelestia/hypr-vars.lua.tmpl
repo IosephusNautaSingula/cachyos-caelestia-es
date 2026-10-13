@@ -1,0 +1,6 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
+-- Ejemplo de plantilla de chezmoi: el navegador sale de los datos de .chezmoi.toml.tmpl.
+-- En el repositorio: dot_config/caelestia/hypr-vars.lua.tmpl → ~/.config/caelestia/hypr-vars.lua
+return {
+    browser = {{ .navegador | quote }},
+}
